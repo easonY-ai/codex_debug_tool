@@ -1,0 +1,48 @@
+# Frontend
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Java
+target/
+*.class
+*.jar
+*.war
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+
+# Runtime data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.jsonl
+*.log
+logs/
+data/
+traces/
+sessions/
+otel-data/
+
+# IDE and operating system
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.swp
+*.bak
