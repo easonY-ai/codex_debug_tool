@@ -3,6 +3,9 @@ node_modules/
 dist/
 .vite/
 coverage/
+test-results/
+playwright-report/
+__pycache__/
 
 # Java
 target/
@@ -26,11 +29,17 @@ target/
 *.sqlite
 *.sqlite3
 *.jsonl
+!frontend/e2e/fixtures/**/*.jsonl
 *.log
 logs/
 data/
+!frontend/src/data/
 traces/
 sessions/
+!frontend/e2e/fixtures/
+!frontend/e2e/fixtures/codex/
+!frontend/e2e/fixtures/codex/sessions/
+!frontend/e2e/fixtures/codex/sessions/*.jsonl
 otel-data/
 
 # IDE and operating system

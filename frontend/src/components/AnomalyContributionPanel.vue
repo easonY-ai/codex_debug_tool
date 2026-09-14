@@ -1,49 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { operationSamples } from '../mockData'
-import type { AnomalyCategory, OperationSample } from '../types'
+import { useAnalyzerData } from '../data/analyzerData'
+import type { AnomalyCategory } from '../types'
 import MetricHelp from './MetricHelp.vue'
+import { calculateAnomalyContribution } from '../analysis/anomalyContribution'
+
+const { operationSamples } = useAnalyzerData()
 
 const props = defineProps<{ turnIds: string[] }>()
-const categories: AnomalyCategory[] = ['模型请求', '工具执行', '审批等待', '本地处理']
 const colors: Record<AnomalyCategory, string> = { 模型请求: '#5b8cff', 工具执行: '#37b38c', 审批等待: '#f5a742', 本地处理: '#98a2b5' }
 
-function percentile(values: number[], p: number) {
-  if (!values.length) return 0
-  const sorted = [...values].sort((a, b) => a - b)
-  const index = (sorted.length - 1) * p
-  const lower = Math.floor(index)
-  const upper = Math.ceil(index)
-  return sorted[lower] + ((sorted[upper] ?? sorted[lower]) - sorted[lower]) * (index - lower)
-}
-
-const stats = computed(() => {
-  const selected = operationSamples.filter((sample) => props.turnIds.includes(sample.turnId))
-  const groups = new Map<string, OperationSample[]>()
-  selected.forEach((sample) => groups.set(sample.operationType, [...(groups.get(sample.operationType) ?? []), sample]))
-  const rows = categories.map((category) => {
-    const categorySamples = selected.filter((sample) => sample.category === category)
-    let anomalyMs = 0
-    const affectedTurns = new Set<string>()
-    let eligibleSamples = 0
-    groups.forEach((samples) => {
-      if (samples[0]?.category !== category || samples.length < 5) return
-      eligibleSamples += samples.length
-      const baseline = percentile(samples.map((sample) => sample.durationMs), .5)
-      samples.forEach((sample) => {
-        const excess = sample.durationMs - baseline
-        if (excess >= 1000 && sample.durationMs >= baseline * 1.2) {
-          anomalyMs += excess
-          affectedTurns.add(sample.turnId)
-        }
-      })
-    })
-    const durations = categorySamples.map((sample) => sample.durationMs)
-    return { category, sampleCount: categorySamples.length, eligibleSamples, anomalyMs, affectedTurns: affectedTurns.size, p50: percentile(durations, .5), p95: percentile(durations, .95), p99: percentile(durations, .99), max: Math.max(0, ...durations) }
-  })
-  const total = rows.reduce((sum, row) => sum + row.anomalyMs, 0)
-  return rows.map((row) => ({ ...row, share: total ? row.anomalyMs / total * 100 : 0 }))
-})
+const stats = computed(() => calculateAnomalyContribution(operationSamples, props.turnIds))
 
 const hasAnomaly = computed(() => stats.value.some((row) => row.anomalyMs > 0))
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`

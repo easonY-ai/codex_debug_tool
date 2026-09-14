@@ -6,7 +6,10 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import type { ECharts } from 'echarts/core'
 import { init } from 'echarts/core'
-import { trendData } from '../mockData'
+import { useAnalyzerData } from '../data/analyzerData'
+
+const { trendData } = useAnalyzerData()
+
 
 use([CanvasRenderer, LineChart, GridComponent, LegendComponent, TooltipComponent])
 

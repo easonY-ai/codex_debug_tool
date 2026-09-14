@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ArrowRight, Filter, Search } from '@element-plus/icons-vue'
-import { sessions } from '../mockData'
+import { useAnalyzerData } from '../data/analyzerData'
 import type { SessionSummary } from '../types'
 import TrendChart from './TrendChart.vue'
 import MetricHelp from './MetricHelp.vue'
 import AnomalyContributionPanel from './AnomalyContributionPanel.vue'
+import { calculateOverviewMetrics } from '../analysis/overviewMetrics'
+
+const { sessions, modelRequests, operationSamples } = useAnalyzerData()
 
 const emit = defineEmits<{ open: [session: SessionSummary] }>()
 const sessionIdQuery = ref('')
@@ -21,6 +24,7 @@ const filtered = computed(() => sessions.filter((item) => {
   return sessionIdMatch && sessionTitleMatch && questionMatch && (source.value === '全部来源' || item.source === source.value) && (status.value === '全部状态' || item.status === status.value)
 }))
 const completedTurnIds = computed(() => filtered.value.filter((item) => item.status !== '运行中').map((item) => item.turnId))
+const metrics = computed(() => calculateOverviewMetrics(filtered.value, modelRequests, operationSamples))
 
 const formatSeconds = (ms?: number) => ms == null ? '—' : `${(ms / 1000).toFixed(1)}s`
 </script>
@@ -47,11 +51,11 @@ const formatSeconds = (ms?: number) => ms == null ? '—' : `${(ms / 1000).toFix
     </section>
 
     <section class="metric-grid" aria-label="核心指标">
-      <article class="metric-card accent-blue"><div class="metric-head"><span>执行轮次数 <MetricHelp title="执行轮次数" unit="开始时间落入筛选范围的执行轮次" formula="COUNT(turn_id)" denominator="不适用；当前共 28 个轮次" exclusions="无" source="JSONL" /></span><span class="delta positive">+18%</span></div><strong>28</strong><small>来自 19 个会话</small></article>
-      <article class="metric-card"><div class="metric-head"><span>P95 总耗时 <MetricHelp title="P95 总耗时" unit="已经结束的执行轮次" formula="轮次结束时间 − 用户问题时间，取第 95 百分位" denominator="26 个具有完整起止时间的轮次" exclusions="2 个运行中轮次" source="JSONL；存在 OTel 时用于校验" /></span><span class="delta negative">+12.4s</span></div><strong>78.2<span>s</span></strong><small>有效样本 26 / 28</small></article>
-      <article class="metric-card"><div class="metric-head"><span>P95 请求 TTFT <MetricHelp title="P95 模型请求 TTFT" unit="所有成功获得首个可见文本增量的模型请求" formula="首个可见文本增量时间 − 请求开始时间，取第 95 百分位" denominator="126 个有效模型请求；一个轮次可贡献多个样本" exclusions="4 个失败请求、2 个取消请求" source="OTel 请求与流事件" /></span><span class="delta negative">+4.1s</span></div><strong>12.6<span>s</span></strong><small>有效请求 126 / 132</small></article>
-      <article class="metric-card"><div class="metric-head"><span>P95 工具调用耗时 <MetricHelp title="P95 工具调用耗时" unit="筛选范围内所有已完成的工具调用" formula="工具调用结束时间 − 开始时间，取第 95 百分位" denominator="74 个具有完整起止时间的工具调用" exclusions="运行中、取消和缺少结束时间的调用" source="OTel Trace；缺失时使用标记过的 JSONL 估算" /></span><span class="delta positive">−6%</span></div><strong>42.1<span>s</span></strong><small>有效调用 74 / 79</small></article>
-      <article class="metric-card"><div class="metric-head"><span>失败率 <MetricHelp title="执行轮次失败率" unit="筛选范围内所有已结束轮次" formula="失败轮次数 ÷ 已结束轮次数 × 100%" denominator="28 个已结束轮次" exclusions="2 个运行中轮次" source="JSONL 轮次最终状态" /></span><span class="delta neutral">持平</span></div><strong>3.6<span>%</span></strong><small>1 / 28 个已结束轮次</small></article>
+      <article class="metric-card accent-blue"><div class="metric-head"><span>执行轮次数 <MetricHelp title="执行轮次数" unit="开始时间落入筛选范围的执行轮次" formula="COUNT(turn_id)" :denominator="`当前共 ${metrics.turns} 个轮次`" exclusions="无" source="JSONL" /></span></div><strong>{{ metrics.turns }}</strong><small>来自 {{ metrics.sessions }} 个会话</small></article>
+      <article class="metric-card"><div class="metric-head"><span>P95 总耗时 <MetricHelp title="P95 总耗时" unit="已经结束的执行轮次" formula="轮次结束时间 − 用户问题时间，取第 95 百分位" :denominator="`${metrics.durationSamples} 个具有有效耗时的已结束轮次`" :exclusions="`${metrics.running} 个运行中或 ${metrics.completed - metrics.durationSamples} 个无效耗时轮次`" source="JSONL；存在 OTel 时用于校验" /></span></div><strong>{{ formatSeconds(metrics.p95DurationMs) }}</strong><small>有效样本 {{ metrics.durationSamples }} / {{ metrics.turns }}</small></article>
+      <article class="metric-card"><div class="metric-head"><span>P95 请求 TTFT <MetricHelp title="P95 模型请求 TTFT" unit="所有成功获得首个可见文本增量的模型请求" formula="首个可见文本增量时间 − 请求开始时间，取第 95 百分位" :denominator="`${metrics.requestSamples} 个有效模型请求；一个轮次可贡献多个样本`" :exclusions="`${metrics.requestTotal - metrics.requestSamples} 个失败、取消、无文本增量或无效耗时请求`" source="OTel 请求与流事件" /></span></div><strong>{{ formatSeconds(metrics.p95TtftMs) }}</strong><small>有效请求 {{ metrics.requestSamples }} / {{ metrics.requestTotal }}</small></article>
+      <article class="metric-card"><div class="metric-head"><span>P95 工具调用耗时 <MetricHelp title="P95 工具调用耗时" unit="筛选范围内所有已完成的工具调用" formula="工具调用结束时间 − 开始时间，取第 95 百分位" :denominator="`${metrics.toolSamples} 个具有有效耗时的工具调用`" :exclusions="`${metrics.toolTotal - metrics.toolSamples} 个无效或缺少耗时的调用`" source="OTel Trace；缺失时使用标记过的 JSONL 估算" /></span></div><strong>{{ formatSeconds(metrics.p95ToolMs) }}</strong><small>有效调用 {{ metrics.toolSamples }} / {{ metrics.toolTotal }}</small></article>
+      <article class="metric-card"><div class="metric-head"><span>失败率 <MetricHelp title="执行轮次失败率" unit="筛选范围内所有已结束轮次" formula="失败轮次数 ÷ 已结束轮次数 × 100%" :denominator="`${metrics.completed} 个已结束轮次`" :exclusions="`${metrics.running} 个运行中轮次`" source="JSONL 轮次最终状态" /></span></div><strong>{{ metrics.failureRate.toFixed(1) }}<span>%</span></strong><small>{{ metrics.failed }} / {{ metrics.completed }} 个已结束轮次</small></article>
     </section>
 
     <section class="overview-grid overview-grid-single">

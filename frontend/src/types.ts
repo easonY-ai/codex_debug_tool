@@ -1,4 +1,4 @@
-export type ClientSource = 'Desktop' | 'CLI' | 'IDE'
+export type ClientSource = 'Desktop' | 'CLI' | 'IDE' | '未知'
 export type SessionStatus = '成功' | '失败' | '运行中'
 export type Completeness = '完整' | '仅 JSONL' | '仅 OTel' | '部分缺失'
 export type AlignmentLevel = 'EXACT' | 'BOUNDED' | 'INFERRED' | 'UNMATCHED'
@@ -33,7 +33,7 @@ export interface TimelineItem {
   startMs: number
   durationMs: number
   status: 'success' | 'warning' | 'danger' | 'info'
-  source: 'JSONL' | 'OTel Trace'
+  source: 'Hook' | 'JSONL' | 'OTel Trace'
   description: string
   input?: string
   output?: string
@@ -69,6 +69,14 @@ export interface OperationSample {
   category: AnomalyCategory
   operationType: string
   durationMs: number
+}
+
+export interface ModelRequestSample {
+  id: string
+  turnId: string
+  ttftMs?: number
+  status: '成功' | '失败' | '取消'
+  hasVisibleText: boolean
 }
 
 export interface TurnTimePart {

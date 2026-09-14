@@ -1,4 +1,4 @@
-import type { Alignment, Diagnosis, OperationSample, SessionSummary, TimelineItem, TurnTimePart } from './types'
+import type { Alignment, Diagnosis, ModelRequestSample, OperationSample, SessionSummary, TimelineItem, TurnTimePart } from '../types'
 
 export const sessions: SessionSummary[] = [
   { id: 'turn-demo-001', sessionId: 'session-demo-a12f', sessionTitle: '支付回调稳定性排查', turnId: 'turn-demo-001', title: '请定位支付回调测试偶发超时的原因，并运行相关测试', project: 'demo-checkout', model: 'gpt-5.6-sol', source: 'CLI', status: '成功', startedAt: '今天 14:32', durationMs: 78200, ttftMs: 8400, modelMs: 27400, toolMs: 42100, tokenUsage: 18420, completeness: '完整', bottleneck: '测试工具执行', diagnosis: '工具占总耗时 54%', confidence: '高' },
@@ -48,6 +48,19 @@ export const trendData = [
   { time: '12:00', duration: 51, ttft: 6, tool: 33 },
   { time: '13:00', duration: 63, ttft: 29, tool: 6 },
   { time: '14:00', duration: 78, ttft: 8, tool: 42 },
+]
+
+export const modelRequests: ModelRequestSample[] = [
+  { id: 'request-demo-01', turnId: 'turn-demo-001', ttftMs: 8400, status: '成功', hasVisibleText: true },
+  { id: 'request-demo-02', turnId: 'turn-demo-001', ttftMs: 3900, status: '成功', hasVisibleText: true },
+  { id: 'request-demo-03', turnId: 'turn-demo-002', ttftMs: 28700, status: '成功', hasVisibleText: true },
+  { id: 'request-demo-04', turnId: 'turn-demo-002', status: '失败', hasVisibleText: false },
+  { id: 'request-demo-05', turnId: 'turn-demo-003', ttftMs: 6200, status: '成功', hasVisibleText: true },
+  { id: 'request-demo-06', turnId: 'turn-demo-004', status: '取消', hasVisibleText: false },
+  { id: 'request-demo-07', turnId: 'turn-demo-005', status: '成功', hasVisibleText: false },
+  { id: 'request-demo-08', turnId: 'turn-demo-006', ttftMs: 7200, status: '成功', hasVisibleText: true },
+  { id: 'request-demo-09', turnId: 'turn-demo-007', ttftMs: 3800, status: '成功', hasVisibleText: true },
+  { id: 'request-demo-10', turnId: 'turn-demo-008', ttftMs: 4100, status: '成功', hasVisibleText: true },
 ]
 
 export const operationSamples: OperationSample[] = [

@@ -1,21 +1,19 @@
 {
-  "description": "Synthetic Trace Lens contract fixture",
+  "description": "Trace Lens local Hook forwarder (Codex 0.154.0)",
   "hooks": {
-    "UserPromptSubmit": [
+    "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "/workspace/demo-project/bin/trace-lens-hook",
-            "timeout": 1,
-            "statusMessage": "Recording synthetic lifecycle event"
+            "timeout": 2
           }
         ]
       }
     ],
-    "PreToolUse": [
+    "SessionEnd": [
       {
-        "matcher": "Bash|apply_patch",
         "hooks": [
           {
             "type": "command",
@@ -25,9 +23,107 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
-        "matcher": "Bash|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
         "hooks": [
           {
             "type": "command",

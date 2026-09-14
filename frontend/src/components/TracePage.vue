@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ArrowLeft, Connection, Document, InfoFilled, WarningFilled } from '@element-plus/icons-vue'
-import { alignments, diagnoses, sessions, timelineItems, turnTimeBreakdown } from '../mockData'
+import { useAnalyzerData } from '../data/analyzerData'
 import type { Alignment, AlignmentLevel, Diagnosis, TimelineItem } from '../types'
 import TimelineChart from './TimelineChart.vue'
 import EventInspectorDrawer from './EventInspectorDrawer.vue'
 
+const { alignments, diagnoses, timelineItems, turnTimeBreakdown } = useAnalyzerData()
+
 defineEmits<{ back: [] }>()
-const session = sessions[0]
-const selectedItem = ref<TimelineItem>(timelineItems.find((item) => item.id === 'evt-tool-2')!)
+const props = defineProps<{ session: import('../types').SessionSummary }>()
+const session = computed(() => props.session)
+const selectedItem = ref<TimelineItem>()
 const selectedAlignment = ref<Alignment | null>(null)
 const activeTab = ref('输入 / 输出')
 const inspectorOpen = ref(false)
@@ -19,11 +22,11 @@ const selectedRelations = computed(() => alignments.filter((item) => item.agentE
 const counterpartItem = computed(() => {
   const relation = selectedRelations.value[0]
   if (!relation) return undefined
-  const counterpartId = selectedItem.value.layer === 'Agent 行为' ? relation.performanceSpanId : relation.agentEventId
+  const counterpartId = selectedItem.value?.layer === 'Agent 行为' ? relation.performanceSpanId : relation.agentEventId
   return timelineItems.find((item) => item.id === counterpartId)
 })
-const jsonlItem = computed(() => selectedItem.value.layer === 'Agent 行为' ? selectedItem.value : counterpartItem.value?.layer === 'Agent 行为' ? counterpartItem.value : undefined)
-const otelItem = computed(() => selectedItem.value.layer === 'OTel 性能' ? selectedItem.value : counterpartItem.value?.layer === 'OTel 性能' ? counterpartItem.value : undefined)
+const jsonlItem = computed(() => selectedItem.value?.layer === 'Agent 行为' ? selectedItem.value : counterpartItem.value?.layer === 'Agent 行为' ? counterpartItem.value : undefined)
+const otelItem = computed(() => selectedItem.value?.layer === 'OTel 性能' ? selectedItem.value : counterpartItem.value?.layer === 'OTel 性能' ? counterpartItem.value : undefined)
 const parsedFields = computed(() => {
   const raw = jsonlItem.value?.raw ?? {}
   return [
@@ -58,6 +61,14 @@ function focusDiagnosis(item: Diagnosis) {
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`
 const breakdownClass: Record<string, string> = { 模型请求: 'model', 工具执行: 'tool', 审批等待: 'approval', 本地处理: 'local', 未归因: 'unknown' }
+onMounted(async()=>{try{const response=await fetch(`/api/sessions/${encodeURIComponent(session.value.turnId)}/analysis`);if(!response.ok)throw new Error(`HTTP ${response.status}`);const body=await response.json();const start=Number(body.session.started_at??0)
+  const agent:TimelineItem[]=body.agentEvents.map((event:any)=>{const raw=JSON.parse(event.raw_json);return{id:`hook-${event.id}`,layer:'Agent 行为',lane:raw.tool_name?'工具':raw.hook_event_name==='UserPromptSubmit'?'用户':'模型',title:raw.hook_event_name,startMs:Math.max(0,Number(event.observed_at)-start),durationMs:0,status:event.parse_status==='NORMALIZED'?'success':'warning',source:'Hook',description:'Codex Hook 原始生命周期事件',input:raw.prompt,output:raw.tool_response?JSON.stringify(raw.tool_response,null,2):undefined,raw}})
+  const performance:TimelineItem[]=body.performanceSpans.map((span:any)=>({id:`otel-${span.id}`,layer:'OTel 性能',lane:span.object_kind?.includes('tool')?'工具 Span':'API / 传输',title:span.object_kind||span.signal_type,startMs:Math.max(0,Number(span.event_time??start)-start),durationMs:Number(span.duration_ms??0),status:'success',source:'OTel Trace',description:'OTLP 原始性能对象',traceId:span.trace_id,raw:JSON.parse(span.raw_json)}))
+  timelineItems.splice(0,timelineItems.length,...agent,...performance);visibleItems.value=timelineItems.map(item=>item.id);selectedItem.value=timelineItems[0]
+  alignments.splice(0,alignments.length,...body.alignments.map((a:any)=>({id:String(a.id),agentEventId:`hook-${body.agentEvents.find((e:any)=>JSON.parse(e.raw_json).tool_use_id===a.hook_node_id)?.id}`,performanceSpanId:`otel-${a.otel_object_id}`,level:a.level,evidence:a.evidence_json,timeDeltaMs:a.time_delta_ms})))
+  diagnoses.splice(0,diagnoses.length,...body.diagnoses.map((d:any)=>({id:d.id,severity:d.severity,title:d.title,detail:d.detail,impact:`${(Number(d.impactMs)/1000).toFixed(1)}s`,confidence:d.confidence})))
+  turnTimeBreakdown.splice(0,turnTimeBreakdown.length,{category:'模型请求',durationMs:Number(body.aggregates.modelRequestMs),source:'OTel'},{category:'工具执行',durationMs:Number(body.aggregates.toolMs),source:body.performanceSpans.length?'OTel':'JSONL 估算'},{category:'审批等待',durationMs:Number(body.aggregates.approvalMs),source:'OTel'},{category:'本地处理',durationMs:Number(body.aggregates.localMs),source:'JSONL 估算'},{category:'未归因',durationMs:Number(body.aggregates.unattributedMs),source:'差额'})
+}catch{timelineItems.splice(0);alignments.splice(0);diagnoses.splice(0)}})
 </script>
 
 <template>
@@ -70,12 +81,12 @@ const breakdownClass: Record<string, string> = { 模型请求: 'model', 工具�
         <p>会话 <span class="mono">{{ session.sessionId }}</span> · 轮次 <span class="mono">{{ session.turnId }}</span> · {{ session.startedAt }}</p>
       </div>
       <div class="trace-summary">
-        <div><span>总耗时</span><strong>78.2s</strong></div>
-        <div><span>Token</span><strong>18.4k</strong></div>
-        <div><span>来源</span><strong>CLI</strong></div>
+        <div><span>总耗时</span><strong>{{ seconds(session.durationMs) }}</strong></div>
+        <div><span>Token</span><strong>{{ (session.tokenUsage / 1000).toFixed(1) }}k</strong></div>
+        <div><span>来源</span><strong>{{ session.source }}</strong></div>
         <el-popover placement="bottom-end" width="360" trigger="hover">
-          <template #reference><div class="completeness-trigger"><span>数据完整度</span><strong class="good">完整 · 96%</strong></div></template>
-          <div class="completeness-help"><b>本轮数据完整度：96%</b><p>四项覆盖率等权计算，不把关联可信度混入完整度。</p><dl><dt>JSONL 解析成功</dt><dd>36 / 36 · 100%</dd><dt>行为阶段有起止时间</dt><dd>11 / 12 · 92%</dd><dt>模型请求有 OTel</dt><dd>2 / 2 · 100%</dd><dt>工具调用有性能 Span</dt><dd>5 / 6 · 83%</dd></dl><small>总分 = 四项覆盖率的算术平均值。只有 JSONL 或只有 OTel 时不显示百分比分数，直接标记数据能力缺失。</small></div>
+          <template #reference><div class="completeness-trigger"><span>数据完整度</span><strong>{{ session.completeness }}</strong></div></template>
+          <div class="completeness-help"><b>数据能力：{{ session.completeness }}</b><p>缺失的 transcript 或 OTel 不会由其他来源伪造。</p></div>
         </el-popover>
       </div>
     </section>
@@ -84,14 +95,14 @@ const breakdownClass: Record<string, string> = { 模型请求: 'model', 工具�
       <div class="trace-main">
         <article class="panel trace-chart-panel">
           <div class="panel-heading trace-heading">
-            <div><h2>共享执行时间轴</h2><p>滚轮缩放 · 拖动平移 · 点击 JSONL 节点查看该位置的输入与输出</p></div>
-            <div class="chart-actions"><el-checkbox-group v-model="visibleItems" class="source-toggles"><el-checkbox-button :value="timelineItems.filter(i => i.layer === 'Agent 行为').map(i => i.id)" disabled>Agent 行为</el-checkbox-button></el-checkbox-group><el-tag effect="plain">已归因 75.2s / 78.2s</el-tag></div>
+            <div><h2>共享执行时间轴</h2><p>滚轮缩放 · 拖动平移 · 点击 Hook/JSONL 节点查看该位置的输入与输出</p></div>
+            <div class="chart-actions"><el-checkbox-group v-model="visibleItems" class="source-toggles"><el-checkbox-button :value="timelineItems.filter(i => i.layer === 'Agent 行为').map(i => i.id)" disabled>Agent 行为</el-checkbox-button></el-checkbox-group><el-tag effect="plain">总耗时 {{ seconds(session.durationMs) }}</el-tag></div>
           </div>
-          <div class="layer-marker agent"><span>JSONL</span> Agent 行为层 <small>回答“做了什么”</small></div>
+          <div class="layer-marker agent"><span>HOOK</span> Agent 行为层 <small>回答“做了什么”</small></div>
           <div class="layer-marker otel"><span>OTEL</span> 性能层 <small>回答“时间花在哪里”</small></div>
           <TimelineChart :items="filteredItems" :selected-id="selectedItem?.id" @select="selectItem" />
           <div class="turn-time-summary">
-            <div class="turn-summary-head"><span><b>本轮耗时摘要</b> · 各项加总等于总耗时，并行阶段不重复累计</span><strong>78.2s</strong></div>
+            <div class="turn-summary-head"><span><b>本轮耗时摘要</b> · 缺失来源归入未归因</span><strong>{{ seconds(session.durationMs) }}</strong></div>
             <div class="turn-summary-bar"><i v-for="part in turnTimeBreakdown" :key="part.category" :class="breakdownClass[part.category]" :style="{ width: `${part.durationMs / session.durationMs * 100}%` }" /></div>
             <div class="turn-summary-items"><span v-for="part in turnTimeBreakdown" :key="part.category"><i :class="breakdownClass[part.category]" /><b>{{ part.category }}</b> {{ seconds(part.durationMs) }}<small>{{ part.source }}</small></span></div>
           </div>
@@ -102,7 +113,7 @@ const breakdownClass: Record<string, string> = { 模型请求: 'model', 工具�
         </article>
 
         <article class="panel alignments-panel">
-          <div class="panel-heading"><div><h2>跨源关联</h2><p>JSONL 事件与 OTel Span 之间的关系及证据</p></div><el-tag type="warning" effect="plain">1 条推测</el-tag></div>
+          <div class="panel-heading"><div><h2>跨源关联</h2><p>Hook/JSONL 事件与 OTel Span 之间的关系及证据</p></div><el-tag effect="plain">{{ alignments.length }} 条</el-tag></div>
           <div class="alignment-list">
             <button v-for="item in alignments" :key="item.id" :class="['alignment-row', item.level.toLowerCase(), { active: selectedAlignment?.id === item.id }]" @click="selectAlignment(item)">
               <span class="alignment-node agent-node">{{ timelineItems.find(n => n.id === item.agentEventId)?.title }}</span>
@@ -133,7 +144,7 @@ const breakdownClass: Record<string, string> = { 模型请求: 'model', 工具�
           </button>
         </article>
 
-        <article class="panel detail-panel">
+        <article v-if="selectedItem" class="panel detail-panel">
           <div class="detail-title"><span :class="['node-status', selectedItem.status]" /><div><small>{{ selectedItem.layer }} · {{ selectedItem.source }}</small><h2>{{ selectedItem.title }}</h2></div><strong>{{ seconds(selectedItem.durationMs) }}</strong></div>
           <el-tabs v-model="activeTab" stretch class="detail-tabs">
             <el-tab-pane label="输入 / 输出" name="输入 / 输出">
@@ -162,7 +173,7 @@ const breakdownClass: Record<string, string> = { 模型请求: 'model', 工具�
               <div v-if="!jsonlItem" class="raw-source-card otel-source"><header><span>OTel 原文</span><small>{{ selectedItem.title }}</small></header><pre class="raw-view">{{ JSON.stringify(selectedItem.raw, null, 2) }}</pre></div>
             </el-tab-pane>
           </el-tabs>
-        </article>
+        </article><article v-else class="panel detail-panel"><el-empty description="该轮次尚无可展示事件"/></article>
       </aside>
     </section>
     <EventInspectorDrawer v-model="inspectorOpen" :item="selectedItem" :counterpart="counterpartItem" :alignment="selectedRelations[0]" />

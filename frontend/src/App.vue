@@ -31,10 +31,10 @@ function openSession(session: SessionSummary) {
         <button :class="{ active: page === 'live' }" @click="go('live')"><el-icon><Tickets /></el-icon>实时会话</button>
         <button :class="{ active: page === 'collection' }" @click="go('collection')"><el-icon><Monitor /></el-icon>采集状态</button>
       </nav>
-      <div class="top-actions"><span class="prototype-badge">MOCK PROTOTYPE</span><button class="icon-button" aria-label="设置"><el-icon><Setting /></el-icon></button><span class="avatar">TL</span></div>
+      <div class="top-actions"><span class="prototype-badge">LOCAL DATA</span><button class="icon-button" aria-label="设置"><el-icon><Setting /></el-icon></button><span class="avatar">TL</span></div>
     </header>
     <OverviewPage v-if="page === 'overview'" @open="openSession" />
-    <TracePage v-else-if="page === 'trace'" :key="activeSession?.id" @back="go('overview')" />
+    <TracePage v-else-if="page === 'trace' && activeSession" :key="activeSession.id" :session="activeSession" @back="go('overview')" />
     <LiveSessionsPage v-else-if="page === 'live'" />
     <CollectionStatusPage v-else />
   </div>

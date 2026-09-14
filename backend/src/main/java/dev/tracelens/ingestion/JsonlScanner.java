@@ -1,0 +1,220 @@
+package dev.tracelens.ingestion;
+
+import dev.tracelens.config.JsonlProperties;
+import dev.tracelens.persistence.IngestionMapper;
+import dev.tracelens.persistence.RawRecord;
+import dev.tracelens.persistence.SourceFile;
+import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.*;
+
+import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardWatchEventKinds.*;
+
+@Service
+public class JsonlScanner implements AutoCloseable {
+    public record ScanResult(long startedAt, long completedAt, int files, long insertedRecords, int failedFiles) { }
+    public record ScannerState(boolean enabled, String root, Long lastStartedAt, Long lastCompletedAt,
+                               int consecutiveErrors, String lastError, boolean watching) { }
+    private final JsonlProperties properties;
+    private final IngestionMapper mapper;
+    private final RawLineParser parser;
+    private final TransactionTemplate transaction;
+    private final boolean automatic;
+    private WatchService watcher;
+    private final Map<Path, WatchKey> watched = new HashMap<>();
+    private Long lastStartedAt;
+    private Long lastCompletedAt;
+    private int consecutiveErrors;
+    private String lastError;
+
+    public JsonlScanner(JsonlProperties properties, IngestionMapper mapper, RawLineParser parser,
+                        TransactionTemplate transaction,
+                        @Value("${analyzer.jsonl.automatic:true}") boolean automatic) {
+        this.properties = properties;
+        this.mapper = mapper;
+        this.parser = parser;
+        this.transaction = transaction;
+        this.automatic = automatic;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void start() { if (automatic && properties.enabled()) scan(); }
+
+    @Scheduled(fixedDelayString = "${analyzer.jsonl.scan-interval-ms:10000}", initialDelayString = "${analyzer.jsonl.scan-interval-ms:10000}")
+    public void periodicScan() { if (automatic && properties.enabled()) scan(); }
+
+    @Scheduled(fixedDelay = 500, initialDelay = 500)
+    public synchronized void watchEvents() {
+        if (!automatic || watcher == null) return;
+        boolean changed = false;
+        WatchKey key;
+        while ((key = watcher.poll()) != null) {
+            changed |= !key.pollEvents().isEmpty();
+            key.reset();
+        }
+        if (changed) scan(); // New directories are registered by the full incremental discovery pass.
+    }
+
+    public synchronized ScannerState state() {
+        return new ScannerState(properties.enabled(), properties.root(), lastStartedAt, lastCompletedAt,
+                consecutiveErrors, lastError, watcher != null && watched.values().stream().anyMatch(WatchKey::isValid));
+    }
+
+    public synchronized ScanResult scan() {
+        if (!properties.enabled()) throw new IllegalStateException("INGESTION_DISABLED");
+        lastStartedAt = System.currentTimeMillis();
+        long[] inserted = {0};
+        int[] files = {0};
+        int[] failed = {0};
+        lastError = null;
+        try {
+            Path root = Path.of(properties.root()).toRealPath();
+            Path sessions = root.resolve("sessions");
+            if (!Files.isDirectory(sessions, NOFOLLOW_LINKS) || Files.isSymbolicLink(sessions)) {
+                throw new IOException("SESSIONS_UNAVAILABLE");
+            }
+            Files.walkFileTree(sessions, new SimpleFileVisitor<>() {
+                @Override public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    register(dir);
+                    return FileVisitResult.CONTINUE;
+                }
+                @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (!attrs.isRegularFile() || !file.getFileName().toString().endsWith(".jsonl")) return FileVisitResult.CONTINUE;
+                    files[0]++;
+                    try { scanFile(root, file, inserted); }
+                    catch (IOException | RuntimeException e) { failed[0]++; lastError = "FILE_SCAN_FAILED"; }
+                    return FileVisitResult.CONTINUE;
+                }
+                @Override public FileVisitResult visitFileFailed(Path file, IOException e) {
+                    failed[0]++; lastError = "FILE_UNAVAILABLE";
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException | RuntimeException e) {
+            failed[0]++; lastError = "SCAN_ROOT_UNAVAILABLE";
+        }
+        lastCompletedAt = System.currentTimeMillis();
+        consecutiveErrors = failed[0] == 0 ? 0 : consecutiveErrors + 1;
+        return new ScanResult(lastStartedAt, lastCompletedAt, files[0], inserted[0], failed[0]);
+    }
+
+    private void register(Path directory) {
+        if (!automatic) return;
+        try {
+            if (watcher == null) watcher = FileSystems.getDefault().newWatchService();
+            WatchKey existing = watched.get(directory);
+            if (existing == null || !existing.isValid()) {
+                watched.put(directory, directory.register(watcher, ENTRY_CREATE, ENTRY_MODIFY, ENTRY_DELETE));
+            }
+        } catch (IOException ignored) { /* Periodic scan remains available. */ }
+    }
+
+    private void scanFile(Path root, Path file, long[] inserted) throws IOException {
+        Path canonical = file.toRealPath();
+        if (!canonical.startsWith(root.resolve("sessions")) || Files.isSymbolicLink(file)) throw new IOException("OUTSIDE_ROOT");
+        BasicFileAttributes attrs = Files.readAttributes(canonical, BasicFileAttributes.class, NOFOLLOW_LINKS);
+        String identity = identity(attrs);
+        try (FileChannel channel = FileChannel.open(canonical, READ, NOFOLLOW_LINKS)) {
+            SourceFile previous = mapper.sourceByPath(canonical.toString());
+            if (previous == null) {
+                SourceFile initial = new SourceFile(0, canonical.toString(), identity, 0, 0, RawLineParser.hash(new byte[0]),
+                        attrs.size(), attrs.lastModifiedTime().toMillis(), System.currentTimeMillis());
+                transaction.executeWithoutResult(status -> mapper.insertSource(initial));
+                previous = mapper.sourceByPath(canonical.toString());
+            }
+            boolean reset = !previous.fileKey().equals(identity) || channel.size() < previous.byteOffset()
+                    || !anchor(channel, previous.byteOffset()).equals(previous.anchorHash());
+            int generation = previous.generation() + (reset ? 1 : 0);
+            long position = reset ? 0 : previous.byteOffset();
+            long lineStart = position;
+            long committed = position;
+            SourceFile source = previous;
+            long limit = channel.size(); // Do not chase a producer indefinitely in one scan.
+            channel.position(position);
+            ByteBuffer buffer = ByteBuffer.allocate(65536);
+            ByteArrayOutputStream line = new ByteArrayOutputStream();
+            List<RawRecord> batch = new ArrayList<>();
+            long batchBytes = 0;
+            while (position < limit) {
+                buffer.clear();
+                buffer.limit((int) Math.min(buffer.capacity(), limit - position));
+                if (channel.read(buffer) <= 0) break;
+                buffer.flip();
+                while (buffer.hasRemaining()) {
+                    byte value = buffer.get();
+                    position++;
+                    if (value == '\n') {
+                        byte[] raw = line.toByteArray(); // Includes CR for CRLF; LF is reflected in endOffset.
+                        batch.add(parser.parse(raw, source.id(), generation, lineStart, position));
+                        batchBytes += raw.length;
+                        line.reset();
+                        lineStart = position;
+                        if (batch.size() >= properties.batchSize() || batchBytes >= 8 * 1024 * 1024) {
+                            commit(channel, canonical, source, identity, generation, position, batch);
+                            inserted[0] += batch.size();
+                            batch.clear(); batchBytes = 0; committed = position;
+                        }
+                    } else {
+                        if (line.size() >= properties.maxLineBytes()) {
+                            // Commit preceding complete lines, never advance past the oversized line.
+                            commit(channel, canonical, source, identity, generation, lineStart, batch);
+                            inserted[0] += batch.size();
+                            throw new IOException("LINE_TOO_LARGE");
+                        }
+                        line.write(value);
+                    }
+                }
+            }
+            if (!batch.isEmpty() || reset || committed == (reset ? 0 : previous.byteOffset())) {
+                commit(channel, canonical, source, identity, generation, lineStart, batch);
+                inserted[0] += batch.size();
+            }
+        }
+    }
+
+    private void commit(FileChannel channel, Path path, SourceFile source, String identity, int generation,
+                        long offset, List<RawRecord> records) throws IOException {
+        BasicFileAttributes current = Files.readAttributes(path, BasicFileAttributes.class, NOFOLLOW_LINKS);
+        if (!current.isRegularFile() || !identity(current).equals(identity) || channel.size() < offset) {
+            throw new IOException("FILE_CHANGED_DURING_SCAN");
+        }
+        SourceFile checkpoint = new SourceFile(source.id(), path.toString(), identity, generation, offset,
+                anchor(channel, offset), channel.size(), current.lastModifiedTime().toMillis(), System.currentTimeMillis());
+        transaction.executeWithoutResult(status -> {
+            for (RawRecord record : records) mapper.insertRecord(record);
+            mapper.updateSource(checkpoint);
+        });
+    }
+
+    private static String identity(BasicFileAttributes attrs) {
+        return attrs.fileKey() == null ? "created:" + attrs.creationTime().toMillis() : attrs.fileKey().toString();
+    }
+
+    private static String anchor(FileChannel channel, long offset) throws IOException {
+        int size = (int) Math.min(offset, 4096);
+        ByteBuffer bytes = ByteBuffer.allocate(size);
+        long start = offset - size;
+        while (bytes.hasRemaining()) {
+            int read = channel.read(bytes, start + bytes.position());
+            if (read <= 0) throw new IOException("CHECKPOINT_UNAVAILABLE");
+        }
+        return RawLineParser.hash(bytes.array());
+    }
+
+    @PreDestroy
+    public synchronized void close() throws IOException { if (watcher != null) watcher.close(); }
+}

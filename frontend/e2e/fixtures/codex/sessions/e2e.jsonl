@@ -1,0 +1,2 @@
+{"type":"session_meta","payload":{"session_id":"session-e2e-001"}}
+{"type":"future_e2e_event","payload":{"internal_chat_message_metadata_passthrough":{"turn_id":"turn-e2e-001"},"content":[{"text":"Synthetic UNKNOWN preview"}]}}

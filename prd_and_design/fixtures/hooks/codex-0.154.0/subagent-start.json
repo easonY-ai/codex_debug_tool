@@ -1,0 +1,11 @@
+{
+  "session_id": "session-demo-hook-001",
+  "transcript_path": "/workspace/demo-project/sessions/session-demo-hook-001.jsonl",
+  "cwd": "/workspace/demo-project",
+  "hook_event_name": "SubagentStart",
+  "model": "model-demo",
+  "permission_mode": "default",
+  "turn_id": "turn-demo-hook-001",
+  "agent_id": "agent-demo-hook-001",
+  "agent_type": "explorer"
+}

@@ -1,0 +1,15 @@
+import { expect,test } from '@playwright/test'
+import path from 'node:path'
+const forwarder='0.1.0'
+async function hook(request:any,id:string,time:number,event:Record<string,unknown>){const response=await request.post('/api/ingestion/hooks',{headers:{'X-Trace-Lens-Forwarder-Version':forwarder},data:{schemaVersion:1,deliveryId:id,observedAt:time,forwarderVersion:forwarder,rawEvent:event}});expect([200,202]).toContain(response.status())}
+test.beforeAll(async({request})=>{const transcript=path.resolve('e2e/fixtures/codex/sessions/e2e.jsonl');const common={session_id:'session-e2e-001',transcript_path:transcript,cwd:'/workspace/demo-project',model:'model-demo',turn_id:'turn-e2e-001'}
+ await hook(request,'30000000-0000-4000-8000-000000000001',1000,{...common,hook_event_name:'UserPromptSubmit',prompt:'真实链路 E2E 测试'})
+ await hook(request,'30000000-0000-4000-8000-000000000002',2000,{...common,hook_event_name:'PreToolUse',tool_use_id:'tool-e2e-001',tool_name:'Bash',tool_input:{command:'synthetic'}})
+ await hook(request,'30000000-0000-4000-8000-000000000003',5000,{...common,hook_event_name:'PostToolUse',tool_use_id:'tool-e2e-001',tool_name:'Bash',tool_response:{exit_code:0}})
+ await hook(request,'30000000-0000-4000-8000-000000000004',6000,{...common,hook_event_name:'Stop',stop_hook_active:false})
+ await request.post('/v1/traces',{data:{resourceSpans:[{scopeSpans:[{spans:[{traceId:'trace-e2e',spanId:'span-e2e',name:'shell',startTimeUnixNano:'2000000000',endTimeUnixNano:'5000000000',attributes:[{key:'codex.call_id',value:{stringValue:'tool-e2e-001'}}]}]}]}]}})
+ await expect.poll(async()=>((await request.get('/api/sessions')).json()).then((v:any)=>v.total)).toBeGreaterThan(0)
+ await request.post('/api/ingestion/rescan');await expect.poll(async()=>((await request.get('/api/unknown-fingerprints')).json()).then((v:any)=>v.total)).toBeGreaterThan(0)
+})
+test('真实 Hook 轮次进入对应 Trace 并显示 OTel 证据',async({page})=>{await page.goto('/');const row=page.getByRole('row').filter({hasText:'真实链路 E2E 测试'});await expect(row).toBeVisible();await row.click();await expect(page.getByRole('heading',{name:'真实链路 E2E 测试'})).toBeVisible();await expect(page.locator('.trace-title-row .mono').filter({hasText:'turn-e2e-001'})).toBeVisible();await page.getByText(/可访问的时间轴节点列表/).click();const nodes=page.locator('.accessible-node');await expect(nodes.filter({hasText:'PostToolUse'})).toBeVisible();await expect(nodes.filter({hasText:'shell'})).toBeVisible();await expect(page.locator('.alignment-row.exact')).toBeVisible()})
+test('真实 UNKNOWN 指纹完成服务端映射',async({page})=>{await page.goto('/');await page.getByRole('button',{name:/采集状态/}).click();const item=page.locator('.unknown-list article').first();await expect(item).toBeVisible();await item.getByRole('button',{name:'配置解析'}).click();await expect(page.getByText('Synthetic UNKNOWN preview')).toBeVisible();await page.getByRole('button',{name:'预览映射'}).click();await expect(page.getByText(/匹配/).first()).toBeVisible();await page.getByRole('button',{name:'保存并重新标准化'}).click();await expect(page.getByText(/映射已保存/)).toBeVisible();await expect(item.getByText('MAPPED')).toBeVisible()})

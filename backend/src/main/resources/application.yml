@@ -1,0 +1,25 @@
+server:
+  address: 127.0.0.1
+  port: 8080
+  error:
+    include-message: never
+    include-stacktrace: never
+spring:
+  application:
+    name: trace-lens
+  sql:
+    init:
+      mode: always
+mybatis:
+  mapper-locations: classpath:mappers/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    arg-name-based-constructor-auto-mapping: true
+analyzer:
+  database: ${user.home}/.trace-lens/analyzer.sqlite
+  jsonl:
+    enabled: false
+    root: ""
+    scan-interval-ms: 10000
+    max-line-bytes: 16777216
+    batch-size: 200
