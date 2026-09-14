@@ -1,0 +1,8 @@
+{
+  "session_id": "session-demo-hook-002",
+  "transcript_path": null,
+  "cwd": "/workspace/demo-project",
+  "hook_event_name": "SessionEnd",
+  "model": "model-demo",
+  "reason": "other"
+}

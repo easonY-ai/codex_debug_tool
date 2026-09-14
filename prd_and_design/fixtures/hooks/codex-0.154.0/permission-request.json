@@ -1,0 +1,14 @@
+{
+  "session_id": "session-demo-hook-001",
+  "transcript_path": "/workspace/demo-project/sessions/session-demo-hook-001.jsonl",
+  "cwd": "/workspace/demo-project",
+  "hook_event_name": "PermissionRequest",
+  "model": "model-demo",
+  "permission_mode": "default",
+  "turn_id": "turn-demo-hook-001",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "npm install synthetic-package",
+    "description": "Install a fictional test dependency"
+  }
+}

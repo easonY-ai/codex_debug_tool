@@ -1,0 +1,41 @@
+{
+  "description": "Synthetic Trace Lens contract fixture",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 1,
+            "statusMessage": "Recording synthetic lifecycle event"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/demo-project/bin/trace-lens-hook",
+            "timeout": 1
+          }
+        ]
+      }
+    ]
+  }
+}
