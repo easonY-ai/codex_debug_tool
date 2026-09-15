@@ -54,7 +54,6 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
 
     @BeforeEach void reset() throws Exception {
         try (var connection = database.getConnection(); var statement = connection.createStatement()) {
-            statement.execute("DROP TRIGGER IF EXISTS simulate_failure");
             statement.execute("DELETE FROM performance_alignment");
             statement.execute("DELETE FROM raw_otel_object");
             statement.execute("DELETE FROM unknown_mapping");
@@ -85,8 +84,8 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
         Files.write(file, first);
         Files.writeString(file, "{\"type\":", StandardOpenOption.APPEND);
         assertThat(scanner.scan().insertedRecords()).isEqualTo(1);
-        assertThat(mapper.sources().getFirst().byteOffset()).isEqualTo(first.length);
-        assertThat(mapper.records(0, 10, null, null).getFirst().rawText()).endsWith("\r");
+        assertThat(mapper.sources().get(0).byteOffset()).isEqualTo(first.length);
+        assertThat(mapper.records(0, 10, null, null).get(0).rawText()).endsWith("\r");
         assertThat(scanner.scan().insertedRecords()).isZero();
         Files.writeString(file, "\"future_event\"}\n", StandardOpenOption.APPEND);
         try (var restarted = new JsonlScanner(properties, mapper, parser, transaction, false)) {
@@ -94,7 +93,7 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
             assertThat(restarted.scan().insertedRecords()).isZero();
         }
         assertThat(mapper.countRecords()).isEqualTo(2);
-        assertThat(mapper.sources().getFirst().byteOffset()).isEqualTo(Files.size(file));
+        assertThat(mapper.sources().get(0).byteOffset()).isEqualTo(Files.size(file));
     }
 
     @Test void malformedAndUnknownLinesAreRetainedAndDoNotBlockFollowingLines() throws Exception {
@@ -113,12 +112,12 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
         scanner.scan();
         Files.writeString(file, "{}\n");
         assertThat(scanner.scan().insertedRecords()).isEqualTo(1);
-        assertThat(mapper.sources().getFirst().generation()).isEqualTo(1);
+        assertThat(mapper.sources().get(0).generation()).isEqualTo(1);
         Path replacement = ROOT.resolve("replacement.tmp");
         Files.writeString(replacement, "{\"type\":\"new_file\"}\n");
         Files.move(replacement, file, StandardCopyOption.REPLACE_EXISTING);
         assertThat(scanner.scan().insertedRecords()).isEqualTo(1);
-        assertThat(mapper.sources().getFirst().generation()).isEqualTo(2);
+        assertThat(mapper.sources().get(0).generation()).isEqualTo(2);
         assertThat(mapper.countRecords()).isEqualTo(3);
     }
 
@@ -128,23 +127,27 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
         scanner.scan();
         Files.writeString(file, "{\"type\":\"new-and-longer\"}\n");
         assertThat(scanner.scan().insertedRecords()).isEqualTo(1);
-        assertThat(mapper.sources().getFirst().generation()).isEqualTo(1);
+        assertThat(mapper.sources().get(0).generation()).isEqualTo(1);
     }
 
     @Test void failedBatchRollsBackRecordsAndCheckpointTogether() throws Exception {
         Path file = SESSIONS.resolve("transaction.jsonl");
         Files.writeString(file, "{\"type\":\"ok\"}\n{\"type\":\"fail\"}\n");
-        try (var connection = database.getConnection(); var statement = connection.createStatement()) {
-            statement.execute("CREATE TRIGGER simulate_failure BEFORE INSERT ON raw_jsonl_record FOR EACH ROW BEGIN IF NEW.event_type = 'fail' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'synthetic failure'; END IF; END");
+        IngestionMapper failingMapper = org.mockito.Mockito.mock(IngestionMapper.class,
+                org.mockito.AdditionalAnswers.delegatesTo(mapper));
+        org.mockito.Mockito.doAnswer(invocation -> {
+            dev.tracelens.persistence.RawRecord record = invocation.getArgument(0);
+            if ("fail".equals(record.eventType())) throw new org.springframework.dao.DataIntegrityViolationException("synthetic failure");
+            mapper.insertRecord(record);
+            return null;
+        }).when(failingMapper).insertRecord(org.mockito.ArgumentMatchers.any());
+        try (var failingScanner = new JsonlScanner(properties, failingMapper, parser, transaction, false)) {
+            assertThat(failingScanner.scan().failedFiles()).isEqualTo(1);
         }
-        assertThat(scanner.scan().failedFiles()).isEqualTo(1);
         assertThat(mapper.countRecords()).isZero();
-        assertThat(mapper.sources().getFirst().byteOffset()).isZero();
-        try (var connection = database.getConnection(); var statement = connection.createStatement()) {
-            statement.execute("DROP TRIGGER simulate_failure");
-        }
+        assertThat(mapper.sources().get(0).byteOffset()).isZero();
         assertThat(scanner.scan().insertedRecords()).isEqualTo(2);
-        assertThat(mapper.sources().getFirst().byteOffset()).isEqualTo(Files.size(file));
+        assertThat(mapper.sources().get(0).byteOffset()).isEqualTo(Files.size(file));
     }
 
     @Test void oversizedLineDoesNotLosePriorLinesOrBlockOtherFiles() throws Exception {
@@ -169,10 +172,13 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
 
     @Test void concurrentRescansDoNotDuplicateData() throws Exception {
         Files.writeString(SESSIONS.resolve("concurrent.jsonl"), "{}\n".repeat(20));
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        var executor = Executors.newFixedThreadPool(2);
+        try {
             var first = executor.submit(scanner::scan);
             var second = executor.submit(scanner::scan);
             assertThat(first.get().insertedRecords() + second.get().insertedRecords()).isEqualTo(20);
+        } finally {
+            executor.shutdownNow();
         }
         assertThat(mapper.countRecords()).isEqualTo(20);
     }
@@ -208,7 +214,7 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
         Files.writeString(SESSIONS.resolve("api.jsonl"), "{}\ninvalid\n{}\n");
         mvc.perform(post("/api/ingestion/rescan").header("Host", "localhost"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.insertedRecords").value(3));
-        long firstId = mapper.records(0, 1, null, null).getFirst().id();
+        long firstId = mapper.records(0, 1, null, null).get(0).id();
         mvc.perform(get("/api/ingestion/records?limit=1").header("Host", "localhost"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.hasMore").value(true))
                 .andExpect(jsonPath("$.nextCursor").value(firstId));
@@ -243,7 +249,7 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
                 row.next(); assertThat(row.getString(1)).isEqualTo("InnoDB");
             }
             try (var row = statement.executeQuery("SELECT @@foreign_key_checks")) { row.next(); assertThat(row.getInt(1)).isEqualTo(1); }
-            try (var row = statement.executeQuery("EXPLAIN SELECT * FROM raw_jsonl_record WHERE id > 10 ORDER BY id LIMIT 50")) {
+            try (var row = statement.executeQuery("EXPLAIN FORMAT=TRADITIONAL SELECT * FROM raw_jsonl_record WHERE id > 10 ORDER BY id LIMIT 50")) {
                 row.next(); assertThat(row.getString("possible_keys")).contains("PRIMARY");
             }
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> statement.executeUpdate(
@@ -367,6 +373,7 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
           {"session_id":"session-api","transcript_path":null,"cwd":"/workspace/demo-project","model":"model-demo",
            "hook_event_name":"Stop","turn_id":"turn-api","stop_hook_active":false}""");
         while (hookWorker.processAvailable()) { }
+        assertThat(mapper.sessionTurns("", 50, 0)).hasSize(1);
         mvc.perform(get("/api/sessions").header("Host","localhost"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].title").value("Synthetic API acceptance"));
         String otlp="""
@@ -377,7 +384,10 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
                 .andExpect(status().isOk());
         mvc.perform(get("/api/sessions/turn-api/analysis").header("Host","localhost"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.performanceSpans.length()").value(1))
-                .andExpect(jsonPath("$.alignments[0].level").value("EXACT"));
+                .andExpect(jsonPath("$.alignments[0].level").value("EXACT"))
+                .andExpect(jsonPath("$.aggregates.totalMs").value(5000))
+                .andExpect(jsonPath("$.aggregates.toolMs").value(3000))
+                .andExpect(jsonPath("$.aggregates.unattributedMs").value(2000));
         mvc.perform(get("/api/ingestion/otel/status").header("Host","localhost"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.traces.stored").value(1));
     }

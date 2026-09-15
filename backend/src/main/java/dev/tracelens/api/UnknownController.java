@@ -58,6 +58,6 @@ public class UnknownController {
             }else if(path.charAt(i)=='['){int end=path.indexOf(']',i);if(end<0)return new Result(List.of(),"数组选择器缺少 ]");String selector=path.substring(i+1,end);List<JsonNode> next=new ArrayList<>();
                 if("*".equals(selector)){for(JsonNode n:nodes)if(n.isArray())n.forEach(next::add);} else if(selector.matches("0|[1-9]\\d*")){int index=Integer.parseInt(selector);for(JsonNode n:nodes)if(n.isArray()&&index<n.size())next.add(n.get(index));}else return new Result(List.of(),"不支持的数组选择器");nodes=next;i=end+1;
             }else return new Result(List.of(),"不支持的语法"); } return new Result(nodes,null); }
-    private static String type(List<JsonNode> values){return values.isEmpty()?"EMPTY":values.getFirst().getNodeType().name();}
-    private static String first(JsonNode root,String path){Result r=evaluate(root,path);return r.error==null&&!r.values.isEmpty()&&r.values.getFirst().isValueNode()?r.values.getFirst().asText():null;}
+    private static String type(List<JsonNode> values){return values.isEmpty()?"EMPTY":values.get(0).getNodeType().name();}
+    private static String first(JsonNode root,String path){Result r=evaluate(root,path);return r.error==null&&!r.values.isEmpty()&&r.values.get(0).isValueNode()?r.values.get(0).asText():null;}
 }

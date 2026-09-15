@@ -51,7 +51,7 @@ public class TranscriptWorker {
                     canonical=real.toString(); SourceFile source=mapper.sourceByPath(canonical);
                     if (source!=null) { sourceId=source.id(); List<RawRecord> records=mapper.recordsForSource(source.id());
                         if (records.isEmpty()) checkStatus="SESSION_META_MISSING";
-                        else { RawRecord first=records.getFirst(); JsonNode meta=json.readTree(first.rawText());
+                        else { RawRecord first=records.get(0); JsonNode meta=json.readTree(first.rawText());
                             if (!"session_meta".equals(meta.path("type").asText()) || !meta.path("payload").path("session_id").isTextual()) checkStatus="SESSION_META_UNSUPPORTED";
                             else { metaId=first.id(); jsonlSession=meta.path("payload").path("session_id").asText();
                                 checkStatus=sessionId.equals(jsonlSession)?"MATCHED":"SESSION_ID_MISMATCH";

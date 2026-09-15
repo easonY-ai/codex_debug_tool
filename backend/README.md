@@ -4,7 +4,7 @@
 
 ## 构建与测试
 
-需要 JDK 21。Maven Wrapper 固定 Maven 3.9.11，并校验发行包 SHA-256；首次运行需要下载 Maven 与依赖。
+需要 JDK 17。Maven Wrapper 固定 Maven 3.9.11，并校验发行包 SHA-256；首次运行需要下载 Maven 与依赖。
 
 ```bash
 cd backend

@@ -14,7 +14,7 @@ class DatabaseConfigurationTest {
         assertThat(yaml).contains("url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/codex_analyze")
                 .contains("username: ${MYSQL_USERNAME}")
                 .contains("password: ${MYSQL_PASSWORD}")
-                .contains("maximum-size: 4")
+                .contains("maximum-size: 20")
                 .contains("connection-timeout-ms: 5000")
                 .contains("session-variables: sql_mode='STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'");
     }

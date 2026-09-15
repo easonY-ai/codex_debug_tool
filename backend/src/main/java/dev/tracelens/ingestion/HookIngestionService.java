@@ -77,12 +77,12 @@ public class HookIngestionService {
         List<Long> sorted = processingSamples.stream().sorted(Comparator.naturalOrder()).toList();
         return new Status(System.currentTimeMillis(), lastSuccessAt, requests, accepted, duplicates,
                 clientErrors, serverErrors, mapper.countPendingNormalizationJobs(), percentile(sorted, .50),
-                percentile(sorted, .95), percentile(sorted, .99), sorted.isEmpty() ? null : sorted.getLast());
+                percentile(sorted, .95), percentile(sorted, .99), sorted.isEmpty() ? null : sorted.get(sorted.size() - 1));
     }
 
     private void recordDuration(long started) {
         processingSamples.add(Math.max(0, (System.nanoTime() - started) / 1_000_000));
-        if (processingSamples.size() > 2048) processingSamples.removeFirst();
+        if (processingSamples.size() > 2048) processingSamples.remove(0);
     }
 
     static Long percentile(List<Long> sorted, double p) {

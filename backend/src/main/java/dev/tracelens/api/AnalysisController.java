@@ -33,11 +33,14 @@ public class AnalysisController {
         if (turn == null) return ResponseEntity.notFound().build();
         List<Map<String, Object>> tools = mapper.toolsForTurn(turnId);
         List<Map<String, Object>> events = mapper.hookEventsForTurn(turnId);
-        long total = number(turn.get("ended_at")) - number(turn.get("started_at"));
-        long hookToolMs = tools.stream().filter(it -> number(it.get("duration_valid")) == 1)
-                .mapToLong(it -> number(it.get("estimated_duration_ms"))).sum();
+        long startedAt = number(turn.get("started_at"));
+        long endedAt = number(turn.get("ended_at"));
+        long total = endedAt - startedAt;
         var performance=mapper.performanceForTurn(turnId); var alignments=mapper.alignmentsForTurn(turnId); var supplements=mapper.supplementsForTurn(turnId);
-        long otelToolMs=performance.stream().filter(it->it.get("call_id")!=null).mapToLong(it->number(it.get("duration_ms"))).sum();
+        long hookToolMs = coveredMs(tools.stream().filter(it -> number(it.get("duration_valid")) == 1)
+                .map(it -> new long[]{number(it.get("pre_observed_at")), number(it.get("post_observed_at"))}).toList(), startedAt, endedAt);
+        long otelToolMs=coveredMs(performance.stream().filter(it->it.get("call_id")!=null)
+                .map(it -> new long[]{number(it.get("event_time")), number(it.get("event_time")) + number(it.get("duration_ms"))}).toList(), startedAt, endedAt);
         long toolMs=otelToolMs>0?otelToolMs:hookToolMs;
         double hookCoverage=turn.get("started_at")!=null&&turn.get("ended_at")!=null?1:0.5;
         double transcriptCoverage="MATCHED".equals(turn.get("session_check_status"))?1:0;
@@ -72,4 +75,17 @@ public class AnalysisController {
     }
 
     private static long number(Object value) { return value instanceof Number number ? number.longValue() : 0; }
+
+    private static long coveredMs(List<long[]> intervals, long lower, long upper) {
+        if (lower <= 0 || upper <= lower) return 0;
+        List<long[]> clipped = intervals.stream().map(it -> new long[]{Math.max(lower, it[0]), Math.min(upper, it[1])})
+                .filter(it -> it[1] >= it[0]).sorted(java.util.Comparator.comparingLong(it -> it[0])).toList();
+        long covered = 0, start = -1, end = -1;
+        for (long[] interval : clipped) {
+            if (start < 0) { start = interval[0]; end = interval[1]; }
+            else if (interval[0] <= end) end = Math.max(end, interval[1]);
+            else { covered += end - start; start = interval[0]; end = interval[1]; }
+        }
+        return start < 0 ? 0 : covered + end - start;
+    }
 }

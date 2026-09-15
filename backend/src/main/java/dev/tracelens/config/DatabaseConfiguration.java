@@ -51,7 +51,7 @@ public class DatabaseConfiguration {
         pool.addDataSourceProperty("socketTimeout", Integer.toString(socketTimeout));
         // Keep invalid/truncated values as errors, including in duplicate-key writes.
         pool.addDataSourceProperty("sessionVariables", sessionVariables);
-        return pool;
+        return new HikariDataSource(pool);
     }
 
     @Bean

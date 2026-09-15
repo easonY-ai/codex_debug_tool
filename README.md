@@ -9,7 +9,7 @@
 - `prd_and_design/`：产品需求、技术方案、数据关联规则和原型基线说明。
 - `prd_and_design/prototype-v1/`：可独立运行的冻结原型源码，只用于确认 UI、交互和产品语义。
 - `frontend/`：正式前端代码线，后续在这里接入真实 API、完善测试并生成发布产物。
-- `backend/`：Java 21 本机服务，提供 Hook、JSONL/transcript、OTLP 采集，跨源关联、分析查询、UNKNOWN 映射与 SSE。
+- `backend/`：Java 17 本机服务，提供 Hook、JSONL/transcript、OTLP 采集，跨源关联、分析查询、UNKNOWN 映射与 SSE。
 
 需求口径以 PRD 为准，界面与交互以冻结原型为准；实现发现冲突时先更新需求并形成新的原型版本，不能直接改写 V1。
 
@@ -25,7 +25,7 @@ npm run dev
 
 ## 运行后端
 
-后端构建与运行见 [后端说明](./backend/README.md)。使用 JDK 21 执行 `./package.sh` 生成内嵌正式前端的可执行 JAR；默认关闭真实目录采集，需显式配置后启用。
+后端构建与运行见 [后端说明](./backend/README.md)。使用 JDK 17 执行 `./package.sh` 生成内嵌正式前端的可执行 JAR；默认关闭真实目录采集，需显式配置后启用。
 
 ## 运行冻结原型
 

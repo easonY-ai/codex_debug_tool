@@ -19,7 +19,7 @@
 - Hook-first 采集与兼容性方案 V2 已确认，冻结在 `prototype-v2`；正式前后端按该版本进入编码。
 - 正式前端代码线位于 `../frontend`，后续真实功能只在该目录实现。
 - 原型确认后才开发 Java 后端；正式前端在后端可用前允许暂时保留 Mock 数据适配层。
-- 后端采用 Java 21、Spring Boot、MyBatis；数据库使用本机 MySQL，配置与验收见 MySQL 切换方案。
+- 后端采用 Java 17、Spring Boot、MyBatis；数据库使用本机 MySQL，配置与验收见 MySQL 切换方案。
 - 前端采用 Vue 3、TypeScript、Vite、Element Plus 和 Apache ECharts。
 - Hook 是 Session、Turn 和 Tool Call 骨架的主事实来源；JSONL 通过 transcript 补齐可见内容，OTel 补齐精确性能。三源允许乱序到达，不假设逐事件天然精确融合。
 - 本地数据库可以保存完整内容，但公开仓库不得包含任何真实会话、账号或机器信息。

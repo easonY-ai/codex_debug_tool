@@ -132,9 +132,9 @@
   </select>
   <select id="sessionTurns" resultType="map">
     SELECT t.session_id, t.turn_id, t.started_at, t.ended_at, t.state, s.transcript_path,
-      COALESCE((SELECT JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.prompt')) FROM raw_hook_event h WHERE JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.turn_id'))=t.turn_id AND JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.hook_event_name'))='UserPromptSubmit' ORDER BY h.id LIMIT 1),'等待用户问题内容补齐') title,
-      (SELECT JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.model')) FROM raw_hook_event h WHERE JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.turn_id'))=t.turn_id ORDER BY h.id LIMIT 1) model,
-      (SELECT JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.cwd')) FROM raw_hook_event h WHERE JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.turn_id'))=t.turn_id ORDER BY h.id LIMIT 1) cwd,
+      COALESCE((SELECT (JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.prompt')) COLLATE utf8mb4_0900_bin) FROM raw_hook_event h WHERE (JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.turn_id')) COLLATE utf8mb4_0900_bin)=t.turn_id AND (JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.hook_event_name')) COLLATE utf8mb4_0900_bin)='UserPromptSubmit' ORDER BY h.id LIMIT 1),'等待用户问题内容补齐') title,
+      (SELECT (JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.model')) COLLATE utf8mb4_0900_bin) FROM raw_hook_event h WHERE (JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.turn_id')) COLLATE utf8mb4_0900_bin)=t.turn_id ORDER BY h.id LIMIT 1) model,
+      (SELECT (JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.cwd')) COLLATE utf8mb4_0900_bin) FROM raw_hook_event h WHERE (JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.turn_id')) COLLATE utf8mb4_0900_bin)=t.turn_id ORDER BY h.id LIMIT 1) cwd,
       b.path_status transcript_path_status,b.session_check_status,
       (SELECT COUNT(*) FROM hook_tool_call x WHERE x.turn_id=t.turn_id) tool_count,
       (SELECT SUM(estimated_duration_ms) FROM hook_tool_call x WHERE x.turn_id=t.turn_id AND duration_valid=1) tool_ms,
@@ -163,7 +163,7 @@
   </select>
   <select id="hookEventsForTurn" resultType="map">
     SELECT id, delivery_id, observed_at, raw_json, parse_status FROM raw_hook_event
-    WHERE JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.turn_id'))=#{turnId} ORDER BY observed_at, id
+    WHERE (JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.turn_id')) COLLATE utf8mb4_0900_bin)=#{turnId} ORDER BY observed_at, id
   </select>
   <insert id="insertRawOtel">
     INSERT INTO raw_otel_object(batch_id, object_index, signal_type, trace_id, span_id, turn_id, call_id, object_kind, duration_ms, event_time, received_at, raw_json, parse_status)

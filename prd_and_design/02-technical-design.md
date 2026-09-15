@@ -17,7 +17,7 @@
 
 ### 后端
 
-- Java 21。
+- Java 17。
 - Spring Boot。
 - Spring MVC 和 Server-Sent Events。
 - MyBatis Starter、Mapper 接口和 Mapper XML。
@@ -107,7 +107,7 @@
 
 ### 后端里程碑 B1：原始数据与断点采集
 
-首个可运行后端使用 Java 21、Spring Boot 3.5、MyBatis Starter 3.0 和 MySQL，先交付原始 JSONL 持久化、启动扫描、周期补扫、目录监听、手动增量补扫和原始事件分页查询。标准化、OTLP、关联、分析和 SSE 属于后续里程碑，未实现能力在状态接口中明确标记，不返回模拟结果。
+首个可运行后端使用 Java 17、Spring Boot 3.5、MyBatis Starter 3.0 和 MySQL，先交付原始 JSONL 持久化、启动扫描、周期补扫、目录监听、手动增量补扫和原始事件分页查询。标准化、OTLP、关联、分析和 SSE 属于后续里程碑，未实现能力在状态接口中明确标记，不返回模拟结果。
 
 - 采集默认关闭；仅当用户明确设置 `analyzer.jsonl.enabled=true` 和 `analyzer.jsonl.root` 后读取该根目录下的 `sessions`。配置根目录默认值为空，避免启动测试或应用时隐式读取私人会话。文档中 Codex 默认目录约定仅作为用户配置建议。
 - 应用仅允许回环监听，默认端口 8080。默认连接本机 MySQL 的 `codex_analyze` 库；账号密码使用 `MYSQL_USERNAME`、`MYSQL_PASSWORD`，主机端口可用 `MYSQL_HOST`、`MYSQL_PORT` 覆盖。库表已初始化，原 SQLite 文件保留且不自动导入。
@@ -150,6 +150,13 @@
 - 统计窗口没有请求时状态为 `IDLE`，成功率显示未知，不用 100% 掩盖未投递故障。
 
 ## 存储设计原则
+
+### Java/Spring 优先的事务管理
+
+- 事务边界、提交和回滚统一使用 Spring `@Transactional` 或 `TransactionTemplate`；Java 服务层负责业务流程、校验与重试。MyBatis 操作参与同一 Spring 管理的数据库事务。
+- 尽量避免使用 MySQL 触发器、存储过程、存储函数或数据库定时事件承载业务逻辑和事务编排；例外需先记录 Java/Spring 方案不足、权限要求及维护成本。
+- MySQL 继续负责实际事务原子性、主外键、唯一约束和索引，保障完整性与并发幂等；应用层校验不能替代这些约束。
+- 集成测试通过 Java 层注入写入异常，验证真实测试库内已写入记录和检查点一起回滚，不依赖触发器制造错误，也不要求提升全局权限或修改 MySQL 全局配置。
 
 MySQL 至少保存以下逻辑实体：
 

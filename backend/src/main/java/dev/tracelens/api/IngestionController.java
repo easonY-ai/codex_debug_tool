@@ -105,6 +105,6 @@ public class IngestionController {
         List<RawRecord> rows = mapper.records(afterId, limit + 1, sourceId, parseStatus);
         boolean more = rows.size() > limit;
         List<RawRecord> items = more ? rows.subList(0, limit) : rows;
-        return new RecordPage(items, more ? items.getLast().id() : null, more);
+        return new RecordPage(items, more ? items.get(items.size() - 1).id() : null, more);
     }
 }
