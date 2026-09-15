@@ -1,0 +1,137 @@
+{
+  "description": "Trace Lens local Hook forwarder (Codex 0.154.0)",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --project \"$(git rev-parse --show-toplevel)/cli\" python \"$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py\"",
+            "timeout": 1
+          }
+        ]
+      }
+    ]
+  }
+}

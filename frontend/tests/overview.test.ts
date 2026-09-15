@@ -7,6 +7,21 @@ import { analyzerDataKey } from '../src/data/analyzerData'
 import { createMockAnalyzerData } from '../src/data/mockAdapter'
 
 describe('总览数据适配', () => {
+  it('在执行轮次表格中显式展示每个轮次的状态', () => {
+    const data = createMockAnalyzerData()
+    const wrapper = mount(OverviewPage, {
+      global: { plugins: [ElementPlus], provide: { [analyzerDataKey as symbol]: data }, stubs: { TrendChart: true } },
+    })
+    try {
+      expect(wrapper.get('.session-header').text()).toContain('状态')
+      const rows = wrapper.findAll('button.session-row')
+      expect(rows[0].get('.turn-status').text()).toContain('成功')
+      expect(rows.at(-1)?.get('.turn-status').text()).toContain('运行中')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('按独立搜索项筛选并传出实际点击轮次，运行中轮次不参与异常统计', async () => {
     const data = createMockAnalyzerData()
     const wrapper = mount(OverviewPage, {

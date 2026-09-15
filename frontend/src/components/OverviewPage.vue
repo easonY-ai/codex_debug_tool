@@ -70,10 +70,11 @@ const formatSeconds = (ms?: number) => ms == null ? '—' : `${(ms / 1000).toFix
     <section class="panel sessions-panel">
       <div class="panel-heading"><div><h2>需要关注的执行轮次</h2><p>按总耗时降序 · {{ filtered.length }} 条结果</p></div><button class="text-button">查看全部 <el-icon><ArrowRight /></el-icon></button></div>
       <div class="session-table" role="table" aria-label="慢执行轮次列表">
-        <div class="session-row session-header" role="row"><span>用户问题</span><span>所属会话</span><span>来源</span><span>总耗时</span><span>请求 TTFT</span><span>主要瓶颈</span><span>数据</span><span /></div>
+        <div class="session-row session-header" role="row"><span>用户问题</span><span>所属会话</span><span>状态</span><span>来源</span><span>总耗时</span><span>请求 TTFT</span><span>主要瓶颈</span><span>数据</span><span /></div>
         <button v-for="item in filtered" :key="item.id" class="session-row" role="row" @click="emit('open', item)">
           <span class="task-cell"><b>{{ item.title }}</b><small>{{ item.turnId }} · {{ item.startedAt }}</small></span>
           <span class="session-identity"><b>{{ item.sessionTitle }}</b><small class="mono">{{ item.sessionId }}</small></span>
+          <span class="turn-status"><el-tag size="small" :type="item.status === '成功' ? 'success' : item.status === '失败' ? 'danger' : 'primary'">{{ item.status }}</el-tag></span>
           <span><el-tag size="small" effect="plain">{{ item.source }}</el-tag></span>
           <strong>{{ formatSeconds(item.durationMs) }}</strong>
           <span>{{ formatSeconds(item.ttftMs) }}</span>

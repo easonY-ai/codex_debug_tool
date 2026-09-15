@@ -1,0 +1,9 @@
+[project]
+name = "trace-lens-cli"
+version = "0.1.0"
+description = "Local Codex Hook configuration generator and non-blocking Trace Lens forwarder"
+requires-python = ">=3.11,<3.12"
+dependencies = []
+
+[tool.uv]
+package = false

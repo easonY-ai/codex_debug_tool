@@ -10,6 +10,9 @@
 4. [H5 原型规格](./04-prototype-spec.md)：第一阶段页面、交互、Mock 数据和验收门槛。
 5. [原型设计基线](./05-prototype-baseline.md)：已确认 V1 的源码位置、冻结范围、参考顺序和变更规则。
 6. [MySQL 切换方案](./06-mysql-migration.md)：MySQL 与环境变量需求、实现影响和编码前门禁。
+7. [主链路集成测试](./07-main-flow-acceptance.md)：Hook 采集与 Trace 绘制的集成测试用例、执行顺序和人工验收记录。
+8. [Epic/Story 拆分与进度](./08-epics-and-stories.md)：项目阶段、Epic/Story 范围、状态和人工门禁。
+9. [Hook 采集与 Trace Story 规格](./09-hook-trace-story-spec.md)：当前最高优先级 Story 的接口、数据流、验收标准和代码阅读路线。
 
 ## 已确认决策
 
@@ -36,4 +39,4 @@
 
 ## 当前里程碑
 
-Hook-first 能力原型 V2 已确认，可进入正式编码。编码顺序、接口、存储和验收门禁以技术设计的“正式实施契约”为准；已有正式前端和后端仍代表旧里程碑能力，必须按阶段迁移，不能把尚未实现的能力返回为模拟成功。
+Hook-first 能力原型 V2 已确认，项目处于“代码开发”阶段。当前 Epic 为 E1 Hook 采集与 Trace 可视化，当前 Story 为 E1-S1 真实 Codex Hook 主链路，状态为“集成测试中（IT-HOOK-TRACE-001）”。本用例必须由用户手工执行并完成代码阅读；未验收前不开始后续 Story 或其他集成用例。详见 Epic/Story 台账、Story 规格和主链路集成测试文档。

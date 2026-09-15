@@ -1,41 +1,143 @@
-# 主链路集成测试与验收记录
+# Hook/Trace 主链路集成测试与验收记录
 
-## 环境与边界
+## 执行策略
 
-- 2026-09-15：使用用户预建的本机 `codex_analyze_test`，已只读确认数据库可连接且有 15 张表。不启动新 MySQL，不创建表。
-- 使用合成会话与临时 transcript；不修改真实 Codex 配置。测试基类在清理数据前检查实际数据库名称。
-- 后端测试入口：设置本地 `MYSQL_USERNAME`、`MYSQL_PASSWORD` 和 JDK 17 后运行 `python3 backend/scripts/test_mysql.py`。
+- 当前只执行 `IT-HOOK-TRACE-001`，且由用户手工执行。
+- 该用例通过并完成代码阅读后，必须由用户明确同意，才能开始其他用例。
+- 历史自动化结果只作为回归基线，不代替本次真实 Codex 人工验收。
+- 真实数据只留在本机，不得将会话、凭据、本机路径或日志提交到公开仓库。
 
-## 测试用例
+## 人工环境准备
 
-| 编号 | 输入与步骤 | 预期结果 |
-| --- | --- | --- |
-| M01 三源完整链路 | 生成 Hook 配置，通过实际 forwarder 投递用户入口、工具 Pre/Post、Stop；写入匹配 session_meta 的 JSONL；投递 OTLP；总览进入 Trace | 唯一轮次、正确正文与工具结果；三源原文可检查，关联等级有证据；摘要和等于总耗时 |
-| M02 实时更新 | 打开实时页后依次投递入口、工具、结束事件 | SSE 驱动更新；运行中转为完成；缺失输出明确标记，节点可检查 |
-| M03 幂等与乱序 | 同 deliveryId 重复投递；Post 先到，Pre 后到；另测反向时间边界 | 原始投递去重；工具仅一个且终态不回退；负耗时不进入统计 |
-| M04 延迟内容补齐 | 已绑定 transcript 追加半行，补完换行；连续两次手动补齐 | 半行不消费；完整行补齐一次；重复操作不增加记录 |
-| M05 缺失与错误来源 | Hook 无 OTel；JSONL 无 Hook；session_meta ID 不匹配；同名并行工具缺少公共 ID | TTFT 未知；不生成无 Hook 正式轮次；错配正文不挂接；歧义不提升为精确 |
-| M06 UNKNOWN 映射 | 注入未知结构，界面预览合法与非法 JSONPath，保存并重处理 | 非法表达式拒绝；合法映射仅重处理指定指纹，原始记录保留 |
+### 1. 前置检查
 
-## 本次实际结果
+在仓库根目录执行：
 
-- Java 17 基线：系统 Temurin 17.0.19；Maven 以 `release 17` 编译，版本门禁限定 `[17,18)`。
-- 前端离线测试：4 个文件、17 项通过。
-- Python CLI 单元测试：4 项通过。
-- 后端 clean verify：27 项全部通过，包含真实 MySQL 集成测试。已修复 DataSource 返回类型、JSON 字符排序规则冲突，并明确 EXPLAIN 输出格式；事务回滚测试改为 Java 注入异常，不再创建触发器。
-- 浏览器 E2E：2 项通过。测试通过实际 Python forwarder 投递 Hook，经过 Spring 后端、`codex_analyze_test`、查询 API 和正式 Vue 前端；覆盖三源 Trace、精确工具关联、耗时守恒以及 UNKNOWN 映射。
-- M03 的重复、乱序、终态单调和负耗时由后端真实 MySQL 集成测试覆盖；M04 的完整行、断点与重复扫描幂等由后端集成测试覆盖。
-- 验收环境已使用 Java 17 启动在 `http://127.0.0.1:4173/`。合成轮次 `turn-e2e-001` 状态为完成，Hook/transcript/OTel 覆盖均为 100%，工具为精确关联，109ms 总耗时拆分为 107ms 工具和 2ms 未归因。
-- `DatabaseConfigurationTest` 已按当前连接池大小 20 同步断言。
-- M02 实时状态变化、M04 页面手动补扫、M05 全部降级场景和 M06 非法 JSONPath 仍需按下面步骤手动检查。当前模型请求、审批和本地处理的完整统计能力尚未实现，不能把本次主链路测试表述为完整产品验收。
+```bash
+codex --version
+java -version
+uv run --project cli python --version
+```
 
-## 手动验收步骤
+已知基线是 Codex CLI 0.154.0、JDK 17 和由 uv 解析的 Python 3.11。如 Codex 版本已变化，先更新 Hook fixture 与契约。
 
-1. 打开 `http://127.0.0.1:4173/`，在分析总览找到用户问题“真实链路 E2E 测试”，确认状态为成功、轮次为 `turn-e2e-001`。
-2. 点击该行进入 Trace，展开“可访问的时间轴节点列表”，确认存在 UserPromptSubmit、PreToolUse、PostToolUse、Stop 和 OTel shell 节点。
-3. 点击 PostToolUse，检查 Hook 原始事件、工具输出；点击跨源关联，确认显示“精确”，证据来自 Hook `tool_use_id` 与 OTel `call_id`。
-4. 检查本轮耗时摘要：分类之和应等于总耗时；当前数据约显示总耗时 0.1s、工具 0.1s、未归因 0.0s，精确毫秒值见接口结果。
-5. 打开“采集状态”，确认 transcript 路径状态 VALID、session_meta 校验 MATCHED、OTLP traces 已接收，UNKNOWN 指纹为 MAPPED。
-6. 点击 UNKNOWN 的“配置解析”，先输入不支持的 JSONPath 并确认被拒绝；再使用 `$.payload.content[*].text` 预览，确认匹配 `Synthetic UNKNOWN preview`。
-7. 打开“实时会话”，另开终端通过 forwarder 投递一个新的合成轮次，确认页面从运行中更新为完成；点击最新事件检查原始证据。
-8. 任一步不符合预期即记录为未通过；自动化通过不能覆盖手动检查失败。
+### 2. 生成项目级 Hook 配置
+
+从仓库根目录执行：
+
+```bash
+mkdir -p .codex
+uv run --project cli python cli/generate_hooks.py \
+  --command 'uv run --project "$(git rev-parse --show-toplevel)/cli" python "$(git rev-parse --show-toplevel)/cli/trace_lens_hook.py"' \
+  --output .codex/hooks.json
+```
+
+这会生成项目级 `.codex/hooks.json`，不修改 `~/.codex/config.toml`。命令通过 Git 根目录定位 forwarder，不依赖 Codex 启动时的子目录。不要使用当前未跟踪的 `cli/hooks.json`，其中相对命令依赖特定 cwd。
+
+在 Codex 中输入 `/hooks`：
+
+1. 确认来源是当前项目的 `.codex/hooks.json`。
+2. 审查实际命令与事件列表。
+3. 手工信任该 Hook。
+4. 如同一配置层还有内联 `[hooks]`，先移除重复表达，避免重复投递。
+
+Codex 只在项目配置层受信任后加载项目 Hook，修改 Hook 后需重新审查；见 [OpenAI 官方 Hooks 文档](https://learn.chatgpt.com/zh-Hans/docs/hooks)。
+
+### 3. 启动后端
+
+在当前 shell 设置 `MYSQL_USERNAME` 和 `MYSQL_PASSWORD`，但不把凭据写进命令、文档或日志。然后在仓库根目录执行：
+
+```bash
+./package.sh
+./run.sh \
+  --analyzer.jsonl.enabled=true \
+  --analyzer.jsonl.root="$HOME/.codex"
+```
+
+`package.sh` 先执行前端单元测试与构建，再执行后端 `verify` 并生成包含正式前端的 JAR。如本轮已对当前提交成功执行过 `package.sh`，可直接运行 `run.sh`。
+
+验证：
+
+```bash
+curl -sS http://127.0.0.1:8080/api/ingestion/status
+curl -sS http://127.0.0.1:8080/api/ingestion/hooks/status
+```
+
+如 `CODEX_HOME` 不是 `~/.codex`，将 `analyzer.jsonl.root` 改为实际根目录；该目录必须包含 `sessions` 子目录。
+
+### 4. 启动正式前端
+
+另开终端：
+
+```bash
+cd frontend
+npm run dev -- --port 4173
+```
+
+打开 `http://127.0.0.1:4173/`。
+
+## IT-HOOK-TRACE-001：真实 Codex Hook 到 Trace 骨架
+
+### 目标
+
+验证真实 Codex 事件经项目 Hook、Python forwarder、Java 接收器、MySQL、查询 API 和正式 Vue 前端后，在 Trace 页建立行为骨架。
+
+### 手工步骤
+
+1. 记录 `GET /api/ingestion/hooks/status` 中当前 `accepted` 计数。
+2. 确认 `/hooks` 中项目 Hook 已信任，然后新建一个 Codex 会话，以同时覆盖 SessionStart。
+3. 在新会话中发送固定提示：
+
+   ```text
+   请使用 Bash 执行 printf 'trace-lens-manual-001\n'，然后只回复 trace-lens-manual-001。
+   ```
+
+4. 等待 Codex 完成，确认 Hook 未阻断轮次，最终回复是 `trace-lens-manual-001`。
+5. 再次查询 Hook 状态，确认 `accepted` 至少增加 4，且 `lastSuccessAt` 已更新。
+6. 在分析总览搜索 `trace-lens-manual-001`，确认只有一个对应执行轮次且状态为完成。
+7. 点击该行进入 Trace，展开“可访问的时间轴节点列表”，确认至少有 `UserPromptSubmit`、`PreToolUse`、`PostToolUse` 和 `Stop`。
+8. 点击 `PreToolUse` 和 `PostToolUse`，检查 Hook 原始证据中的 `session_id`、`turn_id`、`tool_use_id`、`tool_name`；两个工具边界应使用同一 `tool_use_id`。
+9. 查看完整度与性能层。如本轮没有 OTel，必须显示缺失/部分，TTFT 不得凭 Hook 时间生成。
+10. 按 `09-hook-trace-story-spec.md` 的顺序阅读代码，对照真实 ID 理解数据流。
+
+### 通过标准
+
+- 步骤 1–10 全部通过。
+- 工具 Hook 节点不重复，Pre/Post 关联为同一工具调用。
+- 页面结论与可检查的原始 Hook 证据一致。
+- 任何缺失源都诚实降级，不伪造性能数据或精确关联。
+
+### 失败时记录
+
+只提供失败步骤、`/hooks` 来源/信任状态/错误摘要、脱敏的 Hook status 计数、浏览器错误和 HTTP 状态码；不粘贴数据库密码、完整 transcript 或其他真实对话。
+
+## 后续集成测试清单（未授权执行）
+
+| 编号 | 范围 | 关键预期 | 状态 |
+| --- | --- | --- | --- |
+| IT-HOOK-TRACE-002 | transcript 内容补齐 | session_meta 匹配后补齐用户、工具和最终内容 | 待 S1 验收 |
+| IT-HOOK-TRACE-003 | OTel 工具性能 | 共享已验证 ID 时为 EXACT，耗时摘要守恒 | 待 S2 验收 |
+| IT-HOOK-TRACE-004 | 实时 SSE | 运行中转完成，节点可检查 | 待 S3 验收 |
+| IT-HOOK-TRACE-005 | 重复与乱序 | 重复 delivery 去重，Post 先到可补齐，终态不回退 | 待 S4 验收 |
+| IT-HOOK-TRACE-006 | 无效耗时 | 反向/负耗时不进入统计 | 待 S4 验收 |
+| IT-HOOK-TRACE-007 | transcript 安全与错配 | 越界、符号链接、不可读、session ID 错配均不挂接 | 待 S4 验收 |
+| IT-HOOK-TRACE-008 | 半行与重扫 | 不消费未完整行，完成后只导入一次 | 待 S4 验收 |
+| IT-HOOK-TRACE-009 | UNKNOWN 映射 | 受限 JSONPath 校验，只重处理当前指纹 | 待 S4 验收 |
+| IT-HOOK-TRACE-010 | 缺失来源降级 | 无 OTel 时 TTFT 未知；无 Hook 时不生成正式 Turn | 待 S4 验收 |
+| IT-HOOK-TRACE-011 | 同名并行工具 | 无公共 ID 时保持歧义，不提升为 EXACT | 待 S4 验收 |
+| IT-HOOK-TRACE-012 | forwarder 故障 | 4xx/5xx/超时/无后端时均退出 0，不泄露原始输入 | 待 S4 验收 |
+
+## 执行记录
+
+| 日期 | 用例 | 执行者 | 结果 | 证据/备注 |
+| --- | --- | --- | --- | --- |
+| 2026-09-15 | CLI 单元测试 | Codex | 通过 | 4/4；不依赖网络、MySQL 或真实 Codex 数据 |
+| 2026-09-15 之前 | 合成数据自动 E2E | 自动化 | 历史通过 | Git 提交与现有 E2E 文件记录 2 项通过；不代替本轮人工验收 |
+| 2026-09-15 | IT-HOOK-TRACE-001 | 用户 | 未通过 | 步骤 6 在分析总览找到了对应轮次，但执行轮次表格未展示状态，无法确认为完成；已进入 S1 实现错误修复 |
+| 2026-09-15 | 步骤 6 状态展示修复 | Codex | 自动验证通过 | 先增加失败用例，再在总览表格展示成功、失败、运行中；前端 4 个测试文件、18 项通过，生产构建通过；等待用户复验 |
+| 2026-09-15 | IT-HOOK-TRACE-001 步骤 1–6 | 用户 | 通过 | 状态展示修复后完成人工复验；下一步执行步骤 7 |
+| 2026-09-15 | IT-HOOK-TRACE-001 步骤 7–9 | 用户 | 通过 | Trace 行为节点、原始 Hook 证据与缺源降级展示均通过；下一步是步骤 10 代码阅读 |
+
+## 当前结论
+
+E1-S1 仍是“集成测试中”，不是“开发完成”。`IT-HOOK-TRACE-001` 步骤 1–9 已由用户手工验收通过；当前执行步骤 10 代码阅读。用户完成阅读并确认接受 Story 前，不执行其他用例或后续 Story。
