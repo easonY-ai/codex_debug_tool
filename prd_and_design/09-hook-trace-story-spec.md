@@ -29,6 +29,8 @@
 - 不以 Hook 时间伪造 TTFT，不将时间接近伪装成精确跨源关联。
 - 不自动修改 `~/.codex/config.toml` 或信任 Hook。
 - transcript 完整内容补齐、OTel 精确性能和异常降级分别在 E1-S2、S3 和 S5 验收。
+- CLI 与后端本地运行日志已登记为后续高优先级 E1-S1.1（强关联 S1）；前端日志暂不纳入范围。
+- OTel 精确关联的服务层重构已登记为 E1-S3.1（强关联 S1）；当前 S1 不实现或验收该能力。
 
 ## 接口契约
 
@@ -83,7 +85,7 @@ Codex lifecycle event
 | 官方 Hook 契约与 fixture | 本机 `codex-cli 0.154.0`；事件集合和字段基线已锁定 | 首次人工验收仍必须在 `/hooks` 审查与信任 |
 | Python 环境 | 系统 `python3` 是 3.14.3，不符合仓库规则；`cli/pyproject.toml` 固定 Python 3.11，已验证 uv 解析为 3.11.15 | 正式 Hook 命令必须使用 `uv run --project <repo>/cli`，不使用裸 `python`/`python3` |
 | 当前 `cli/hooks.json` | 命令 `python ./trace_lens_hook.py` 依赖会话 cwd，且 Python 版本不合规 | 不把该未跟踪文件作为正式配置；按集成测试文档生成项目级配置 |
-| 当前 Trace 能力 | Hook 行为骨架和工具 OTel 关联已有实现；完整 API/TTFT/审批/本地处理统计尚不完整 | S1 验收只宣称 Hook 骨架主链路；剩余能力留在后续 Story |
+| 当前 Trace 能力 | Hook 行为骨架已有实现；当前工具 OTel 关联把未由真实 Codex 样本验证的 `Hook.tool_use_id == OTel codex.call_id` 直接标为 EXACT | S1 验收只宣称 Hook 骨架主链路，并在无 OTel 时显示缺失；S3.1 必须先重构并验证关联契约，才可宣称工具 OTel 精确关联 |
 | 运行文档 | 原 `backend/README.md` 仍声称 SQLite/B1，与实现冲突 | 本次同步修正，不改业务实现 |
 
 ## 验收标准

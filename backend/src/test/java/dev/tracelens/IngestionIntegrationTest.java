@@ -6,6 +6,7 @@ import dev.tracelens.ingestion.HookNormalizationWorker;
 import dev.tracelens.ingestion.TranscriptWorker;
 import dev.tracelens.ingestion.RawLineParser;
 import dev.tracelens.persistence.IngestionMapper;
+import dev.tracelens.persistence.RawHookEvent;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -278,6 +279,15 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
         mvc.perform(get("/api/ingestion/hooks/status").header("Host", "localhost"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.accepted").isNumber())
                 .andExpect(jsonPath("$.duplicates").isNumber()).andExpect(jsonPath("$.pendingJobs").value(1));
+    }
+
+    @Test void insertingRawHookEventBackfillsMySqlGeneratedId() {
+        RawHookEvent event = new RawHookEvent(0, "10000000-0000-4000-8000-000000000099", 1000, 1001,
+                "0.1.0", "{}", "PENDING", null);
+
+        mapper.insertRawHookEvent(event);
+
+        assertThat(event.id()).isPositive();
     }
 
     @Test void hookApiRejectsMalformedMismatchedOversizedAndCrossOriginRequests() throws Exception {

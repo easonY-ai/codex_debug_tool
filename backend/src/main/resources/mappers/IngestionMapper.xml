@@ -29,7 +29,8 @@
     <if test="parseStatus != null">AND parse_status = #{parseStatus}</if>
     ORDER BY id LIMIT #{limit}
   </select>
-  <insert id="insertRawHookEvent">
+  <insert id="insertRawHookEvent" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+    <!-- 原始 JSON 是可追溯证据；先保存它，后续版本的归一化规则仍可重放或排错。 -->
     INSERT INTO raw_hook_event(delivery_id, observed_at, received_at, forwarder_version, raw_json, parse_status, error_code)
     VALUES(#{deliveryId}, #{observedAt}, #{receivedAt}, #{forwarderVersion}, #{rawJson}, #{parseStatus}, #{errorCode})
   </insert>
@@ -37,6 +38,7 @@
     SELECT * FROM raw_hook_event WHERE delivery_id_sha256 = UNHEX(SHA2(#{deliveryId}, 256)) AND delivery_id = #{deliveryId}
   </select>
   <insert id="insertNormalizationJob">
+    <!-- 与 raw_hook_event 在同一事务创建，由异步 Worker 消费，缩短 Hook HTTP 回调路径。 -->
     INSERT INTO normalization_job(source_kind, source_id, status, attempts, available_at, created_at, updated_at)
     VALUES(#{sourceKind}, #{sourceId}, 'PENDING', 0, #{now}, #{now}, #{now})
   </insert>
@@ -63,6 +65,7 @@
     SELECT * FROM raw_hook_event WHERE id=#{id}
   </select>
   <insert id="upsertHookSession">
+    <!-- 重复或乱序事件不能把终态倒退为运行态；last_observed_at 只允许单调前进。 -->
     INSERT INTO hook_session(session_id, transcript_path, started_at, ended_at, state, last_observed_at, version)
     VALUES(#{sessionId}, #{transcriptPath},
       CASE WHEN #{eventName}='SessionStart' THEN #{observedAt} END,
@@ -80,6 +83,7 @@
       last_observed_at=GREATEST(hook_session.last_observed_at, incoming.last_observed_at), version=hook_session.version+1
   </insert>
   <insert id="upsertHookTurn">
+    <!-- (session_id, turn_id) 是 Turn 业务键；终态一经得到即保持，保证重复投递幂等。 -->
     INSERT INTO hook_turn(session_id, turn_id, started_at, ended_at, state, version)
     VALUES(#{sessionId}, #{turnId},
       CASE WHEN #{eventName}='UserPromptSubmit' THEN #{observedAt} END,
@@ -96,6 +100,7 @@
       version=hook_turn.version+1
   </insert>
   <insert id="upsertHookTool">
+    <!-- Pre/Post 可乱序到达；只有两个时间都存在且 post >= pre 时才生成有效耗时。 -->
     INSERT INTO hook_tool_call(session_id, turn_id, tool_use_id, tool_name, pre_observed_at, post_observed_at,
       state, estimated_duration_ms, duration_valid, version)
     VALUES(#{sessionId}, #{turnId}, #{toolUseId}, #{toolName},

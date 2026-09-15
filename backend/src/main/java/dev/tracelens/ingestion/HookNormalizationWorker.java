@@ -42,6 +42,7 @@ public class HookNormalizationWorker {
 
     @Scheduled(fixedDelayString = "${trace-lens.normalization.poll-ms:100}")
     public void poll() {
+        // 接收 HTTP 请求只做可靠落库；归一化异步执行，避免 Hook 回调等待数据库关联与状态计算。
         processAvailable();
     }
 
@@ -80,6 +81,8 @@ public class HookNormalizationWorker {
         String transcriptPath = nullableText(event, "transcript_path");
         mapper.upsertHookSession(sessionId, transcriptPath, source.observedAt(), eventName);
 
+        // turn_id 只属于具体用户轮次；SessionStart/SessionEnd 等会话级生命周期事件可以没有它，
+        // 因而先按可选字段处理。工具事件必须归属某个 Turn，下面会单独拒绝缺失的 turn_id。
         String turnId = nullableText(event, "turn_id");
         if (turnId != null) mapper.upsertHookTurn(sessionId, turnId, source.observedAt(), eventName);
 

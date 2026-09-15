@@ -38,6 +38,8 @@ public class IngestionController {
     public org.springframework.http.ResponseEntity<HookIngestionService.Result> hook(
             @RequestBody byte[] body,
             @RequestHeader("X-Trace-Lens-Forwarder-Version") String headerVersion) {
+        // 与 forwarder 的 stdin 限制对齐，在 JSON 解析前拒绝过大的请求体，
+        // 避免单个异常 Hook 事件占用过多 Web 线程内存。
         if (body.length > 1024 * 1024) {
             hooks.recordClientError();
             throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "HOOK_REQUEST_TOO_LARGE");
@@ -57,6 +59,7 @@ public class IngestionController {
             }
             String deliveryId = envelope.path("deliveryId").asText();
             UUID.fromString(deliveryId);
+            // header 与 envelope 内版本必须一致，防止中间代理或误配客户端造成协议含义混淆。
             HookIngestionService.Result result = hooks.accept(deliveryId, envelope.path("observedAt").asLong(),
                     headerVersion, envelope.path("rawEvent"));
             HttpStatus status = "ACCEPTED".equals(result.status()) ? HttpStatus.ACCEPTED : HttpStatus.OK;

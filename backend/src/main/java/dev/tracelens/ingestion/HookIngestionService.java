@@ -45,6 +45,7 @@ public class HookIngestionService {
         try {
             long receivedAt = System.currentTimeMillis();
             Result result = transaction.execute(status -> {
+                // deliveryId 由 forwarder 为一次 Hook 投递生成；它是重试时保持不变的幂等键。
                 RawHookEvent existing = mapper.hookEventByDeliveryId(deliveryId);
                 if (existing != null) return new Result(deliveryId, "DUPLICATE");
                 RawHookEvent event = new RawHookEvent(0, deliveryId, observedAt, receivedAt,
@@ -54,8 +55,10 @@ public class HookIngestionService {
                 } catch (DuplicateKeyException duplicate) {
                     return new Result(deliveryId, "DUPLICATE");
                 }
-                RawHookEvent inserted = mapper.hookEventByDeliveryId(deliveryId);
-                mapper.insertNormalizationJob("HOOK", inserted.id(), receivedAt);
+                // 原始证据和待归一化任务必须同事务提交：两者要么同时存在，要么同时回滚，
+                // 以免出现“已接受但无法进入 Trace”的半完成事件。MyBatis 已回填 MySQL 自增主键，
+                // 无需为获取 id 再按 deliveryId 查询刚插入的记录。
+                mapper.insertNormalizationJob("HOOK", event.id(), receivedAt);
                 return new Result(deliveryId, "ACCEPTED");
             });
             synchronized (this) {
@@ -63,6 +66,7 @@ public class HookIngestionService {
                 lastSuccessAt = receivedAt;
                 recordDuration(started);
             }
+            // 只有事务成功接受后才通知前端刷新，避免 UI 看到尚未持久化的伪成功事件。
             if(events!=null&&"ACCEPTED".equals(result.status()))events.publish(java.util.Map.of("deliveryId",deliveryId,"observedAt",observedAt,"status","ACCEPTED"));
             return result;
         } catch (RuntimeException error) {

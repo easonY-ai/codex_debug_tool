@@ -14,6 +14,8 @@ EVENTS = ["SessionStart", "SessionEnd", "SubagentStart", "PreToolUse", "Permissi
 def config(command: str) -> dict:
     hooks = {}
     for event in EVENTS:
+        # Hook 命令在 Codex 的交互路径上运行；退出/中断事件只需尽力采集，
+        # 因此使用更短超时，避免会话结束时因本地服务暂不可用而额外等待。
         timeout = 1 if event in {"SessionEnd", "Interrupt"} else 2
         hooks[event] = [{"hooks": [{"type": "command", "command": command, "timeout": timeout}]}]
     return {"description": "Trace Lens local Hook forwarder (Codex 0.154.0)", "hooks": hooks}
