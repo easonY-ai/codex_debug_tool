@@ -21,7 +21,7 @@
 - Spring Boot。
 - Spring MVC 和 Server-Sent Events。
 - MyBatis Starter、Mapper 接口和 Mapper XML。
-- SQLite JDBC，数据库使用 WAL 模式。
+- MySQL 8.4+、Connector/J 与 InnoDB；账号和密码仅从本地环境变量读取，切换范围见 [MySQL 切换方案](./06-mysql-migration.md)。
 - Maven Wrapper 统一构建环境。
 
 不使用 JPA、Spring Data JDBC、JdbcClient 或 MyBatis-Plus。复杂筛选和统计 SQL 写在 Mapper XML 中，避免在 Java 代码中拼接 SQL。
@@ -51,7 +51,7 @@
 - `normalization`：把不同版本的输入转换为内部稳定模型。
 - `correlation`：生成跨数据源关联及其证据和可信度。
 - `analysis`：计算关键路径、统计指标和诊断结论。
-- `persistence`：MyBatis Mapper、事务和 SQLite 初始化。
+- `persistence`：MyBatis Mapper、事务和 MySQL 初始化。
 - `api`：查询接口、采集状态接口和 SSE 推送。
 - `ingestion-hooks`：接收 Codex Hook 事件并立即记录 `observedAt`，保存原始输入后再异步标准化。
 - `schema-mapping`：维护 UNKNOWN 结构指纹、受限 JSONPath 映射和按指纹重新标准化任务。
@@ -107,11 +107,11 @@
 
 ### 后端里程碑 B1：原始数据与断点采集
 
-首个可运行后端使用 Java 21、Spring Boot 3.5、MyBatis Starter 3.0 和 SQLite，先交付原始 JSONL 持久化、启动扫描、周期补扫、目录监听、手动增量补扫和原始事件分页查询。标准化、OTLP、关联、分析和 SSE 属于后续里程碑，未实现能力在状态接口中明确标记，不返回模拟结果。
+首个可运行后端使用 Java 21、Spring Boot 3.5、MyBatis Starter 3.0 和 MySQL，先交付原始 JSONL 持久化、启动扫描、周期补扫、目录监听、手动增量补扫和原始事件分页查询。标准化、OTLP、关联、分析和 SSE 属于后续里程碑，未实现能力在状态接口中明确标记，不返回模拟结果。
 
 - 采集默认关闭；仅当用户明确设置 `analyzer.jsonl.enabled=true` 和 `analyzer.jsonl.root` 后读取该根目录下的 `sessions`。配置根目录默认值为空，避免启动测试或应用时隐式读取私人会话。文档中 Codex 默认目录约定仅作为用户配置建议。
-- 应用仅允许回环监听，默认端口 8080。默认数据库为用户目录下 `.trace-lens/analyzer.sqlite`，可用 `analyzer.database` 覆盖；测试始终使用临时目录。
-- 按单文件、分批事务写入原始行和检查点，二者一起提交或回滚。扫描串行化，SQLite 启用 WAL、外键与忙等待。单连接池避免本阶段多写者争用；后续 OTLP 队列另行实现。
+- 应用仅允许回环监听，默认端口 8080。默认连接本机 MySQL 的 `codex_analyze` 库；账号密码使用 `MYSQL_USERNAME`、`MYSQL_PASSWORD`，主机端口可用 `MYSQL_HOST`、`MYSQL_PORT` 覆盖。库表已初始化，原 SQLite 文件保留且不自动导入。
+- 按单文件、分批事务写入原始行和检查点，二者一起提交或回滚。扫描串行化，MySQL 使用 InnoDB、外键与严格模式；HikariCP 管理连接，事务保持短小。
 - UTF-8 按字节读取，只消费以 LF 结束的记录，兼容 CRLF；保留原始字节和原文。单行超过可配置上限时停止该文件并报告错误，检查点不越过该行，其他文件仍继续扫描。
 - 文件身份、长度和检查点前缀摘要用于识别轮换、截断或重写；发现变化则建立新 generation，保留历史记录。符号链接和超出配置根目录的文件不采集。
 - `GET /api/ingestion/status` 返回配置状态、扫描起止时间、错误数量、文件检查点、持久化记录数及未实现能力；本阶段整体状态是 `PARTIAL` 或 `DISABLED`，不能声称采集全部正常。
@@ -151,7 +151,7 @@
 
 ## 存储设计原则
 
-SQLite 至少保存以下逻辑实体：
+MySQL 至少保存以下逻辑实体：
 
 - 数据源与读取检查点。
 - JSONL 原始事件。
@@ -160,7 +160,7 @@ SQLite 至少保存以下逻辑实体：
 - 跨数据源 Alignment 及其关联证据。
 - 诊断结果。
 
-原始数据与标准化数据分离，解析器升级后可以重新标准化。数据库开启 WAL，并对实际查询涉及的会话时间、Turn、Call ID、Trace/Span ID、事件时间和工具类型建立索引。新增索引前使用代表性查询和 `EXPLAIN QUERY PLAN` 验证收益。
+原始数据与标准化数据分离，解析器升级后可以重新标准化。数据库使用 InnoDB，并对实际查询涉及的会话时间、Turn、Call ID、Trace/Span ID、事件时间和工具类型建立索引。新增索引前使用代表性查询和 `EXPLAIN` 验证收益。
 
 ## API
 
@@ -207,7 +207,7 @@ aggregates
 - `GET /api/ingestion/otel/status` 按 logs、traces、metrics 返回接口可用、投递成功率、处理耗时、失败、队列和丢弃；无请求窗口成功率为 null，状态为 `IDLE`。
 - `GET /api/unknown-fingerprints` 分页查询结构指纹；`GET /api/unknown-fingerprints/{id}` 返回合成/脱敏预览所需原始样本；`PUT /api/unknown-fingerprints/{id}/mapping` 校验并版本化保存映射；`POST /api/unknown-fingerprints/{id}/renormalize` 只重处理该指纹。
 
-### SQLite 逻辑表
+### MySQL 逻辑表
 
 - `raw_hook_event(id, delivery_id, observed_at, received_at, forwarder_version, raw_json, parse_status, error_code)`；`delivery_id` 唯一。
 - `hook_session(session_id, transcript_path, started_at, ended_at, state, last_observed_at, version)`；主键 `session_id`。
@@ -251,7 +251,7 @@ aggregates
 ## 配置与交付
 
 - 服务默认只绑定 `127.0.0.1`。
-- 数据库默认位于应用自己的本机数据目录，可通过启动参数覆盖。
+- 数据库和库表由用户预先创建；本机地址、端口通过 `MYSQL_HOST`、`MYSQL_PORT` 配置，账号和密码通过 `MYSQL_USERNAME`、`MYSQL_PASSWORD` 配置。
 - 设置页只检测 OTel 配置状态并生成可复制配置，不自动修改用户文件。
 - 开发模式分别启动 Spring Boot 与 Vite，由 Vite 代理后端接口。
 - 发布构建先生成前端静态资源，再打入可执行 JAR。
@@ -260,7 +260,7 @@ aggregates
 ## 测试策略
 
 - JUnit 5 和 Spring Boot Test 覆盖解析、存储、关联和 API。
-- MyBatis 集成测试使用临时 SQLite 数据库。
+- 单元测试不依赖外部数据库。MyBatis 集成测试通过独立 Maven profile 在临时 MySQL 实例上运行，使用合成数据，不复用实际采集库。
 - Vitest 和 Vue Test Utils 覆盖前端状态与组件。
 - Playwright 覆盖总览到 Trace 详情的核心用户路径。
 - Fixture 全部为合成数据，不读取开发者真实 Codex 目录。

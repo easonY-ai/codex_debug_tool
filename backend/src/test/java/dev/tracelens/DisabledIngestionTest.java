@@ -2,26 +2,24 @@ package dev.tracelens;
 
 import dev.tracelens.config.JsonlProperties;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest
+@SpringBootTest(properties = "trace-lens.normalization.enabled=false")
 @AutoConfigureMockMvc
-class DisabledIngestionTest {
-    @TempDir static Path temporary;
+class DisabledIngestionTest extends MySqlIntegrationSupport {
     @Autowired MockMvc mvc;
 
-    @DynamicPropertySource static void config(DynamicPropertyRegistry registry) {
-        registry.add("analyzer.database", () -> temporary.resolve("disabled.sqlite").toString());
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    @org.junit.jupiter.api.BeforeEach void clearRawData() {
+        jdbc.update("DELETE FROM raw_jsonl_record");
+        jdbc.update("DELETE FROM source_file");
     }
 
     @Test void defaultsNeverReadUserSessions() throws Exception {

@@ -30,7 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "analyzer.jsonl.batch-size=2", "analyzer.jsonl.max-line-bytes=1024",
         "trace-lens.normalization.enabled=false"})
 @AutoConfigureMockMvc
-class IngestionIntegrationTest {
+class IngestionIntegrationTest extends MySqlIntegrationSupport {
     private static final Path ROOT = temporaryRoot();
     private static final Path SESSIONS = ROOT.resolve("sessions");
     @Autowired JsonlScanner scanner;
@@ -49,7 +49,6 @@ class IngestionIntegrationTest {
     }
 
     @DynamicPropertySource static void config(DynamicPropertyRegistry registry) {
-        registry.add("analyzer.database", () -> ROOT.resolve("test.sqlite").toString());
         registry.add("analyzer.jsonl.root", ROOT::toString);
     }
 
@@ -136,7 +135,7 @@ class IngestionIntegrationTest {
         Path file = SESSIONS.resolve("transaction.jsonl");
         Files.writeString(file, "{\"type\":\"ok\"}\n{\"type\":\"fail\"}\n");
         try (var connection = database.getConnection(); var statement = connection.createStatement()) {
-            statement.execute("CREATE TRIGGER simulate_failure BEFORE INSERT ON raw_jsonl_record WHEN NEW.event_type = 'fail' BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END");
+            statement.execute("CREATE TRIGGER simulate_failure BEFORE INSERT ON raw_jsonl_record FOR EACH ROW BEGIN IF NEW.event_type = 'fail' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'synthetic failure'; END IF; END");
         }
         assertThat(scanner.scan().failedFiles()).isEqualTo(1);
         assertThat(mapper.countRecords()).isZero();
@@ -237,13 +236,19 @@ class IngestionIntegrationTest {
                 .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
     }
 
-    @Test void sqliteUsesWalForeignKeysAndIndexedCursor() throws Exception {
+    @Test void mysqlUsesInnoDbForeignKeysAndIndexedCursor() throws Exception {
         try (var connection = database.getConnection(); var statement = connection.createStatement()) {
-            try (var row = statement.executeQuery("PRAGMA journal_mode")) { row.next(); assertThat(row.getString(1)).isEqualTo("wal"); }
-            try (var row = statement.executeQuery("PRAGMA foreign_keys")) { row.next(); assertThat(row.getInt(1)).isEqualTo(1); }
-            try (var row = statement.executeQuery("EXPLAIN QUERY PLAN SELECT * FROM raw_jsonl_record WHERE id > 10 ORDER BY id LIMIT 50")) {
-                row.next(); assertThat(row.getString("detail")).contains("INTEGER PRIMARY KEY");
+            assertThat(connection.getMetaData().getDatabaseProductName()).isEqualTo("MySQL");
+            try (var row = statement.executeQuery("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='raw_jsonl_record'")) {
+                row.next(); assertThat(row.getString(1)).isEqualTo("InnoDB");
             }
+            try (var row = statement.executeQuery("SELECT @@foreign_key_checks")) { row.next(); assertThat(row.getInt(1)).isEqualTo(1); }
+            try (var row = statement.executeQuery("EXPLAIN SELECT * FROM raw_jsonl_record WHERE id > 10 ORDER BY id LIMIT 50")) {
+                row.next(); assertThat(row.getString("possible_keys")).contains("PRIMARY");
+            }
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> statement.executeUpdate(
+                    "INSERT INTO raw_jsonl_record(source_id,generation,byte_offset,end_offset,content_hash,raw_bytes,raw_text,parse_status,ingested_at) VALUES(-1,0,0,0,'demo',X'00','demo','VALID_JSON',0)"))
+                    .isInstanceOf(java.sql.SQLException.class);
         }
     }
 
@@ -311,7 +316,7 @@ class IngestionIntegrationTest {
                  "tool_name":"Bash","tool_input":{}}""");
         hookWorker.processAvailable();
         assertThat(mapper.hookTool("session-demo", "turn-demo", "tool-demo"))
-                .containsEntry("state", "SUCCESS").containsEntry("estimated_duration_ms", 1000)
+                .containsEntry("state", "SUCCESS").containsEntry("estimated_duration_ms", 1000L)
                 .containsEntry("duration_valid", 1);
 
         postHook("10000000-0000-4000-8000-000000000013", 3000, """

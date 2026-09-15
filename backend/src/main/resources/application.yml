@@ -9,14 +9,25 @@ spring:
     name: trace-lens
   sql:
     init:
-      mode: always
+      mode: never
 mybatis:
   mapper-locations: classpath:mappers/*.xml
   configuration:
     map-underscore-to-camel-case: true
     arg-name-based-constructor-auto-mapping: true
 analyzer:
-  database: ${user.home}/.trace-lens/analyzer.sqlite
+  database:
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/codex_analyze
+    username: ${MYSQL_USERNAME}
+    password: ${MYSQL_PASSWORD}
+    pool:
+      maximum-size: 20
+      minimum-idle: 1
+      connection-timeout-ms: 5000
+      socket-timeout-ms: 30000
+      connection-time-zone: UTC
+      connection-collation: utf8mb4_0900_bin
+      session-variables: sql_mode='STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'
   jsonl:
     enabled: false
     root: ""

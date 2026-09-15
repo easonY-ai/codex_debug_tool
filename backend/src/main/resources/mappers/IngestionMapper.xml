@@ -2,7 +2,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="dev.tracelens.persistence.IngestionMapper">
   <select id="sourceByPath" resultType="dev.tracelens.persistence.SourceFile">
-    SELECT * FROM source_file WHERE path = #{path}
+    SELECT * FROM source_file WHERE path_sha256 = UNHEX(SHA2(#{path}, 256)) AND path = #{path}
   </select>
   <insert id="insertSource">
     INSERT INTO source_file(path, file_key, generation, byte_offset, anchor_hash, observed_size, modified_at, scanned_at)
@@ -34,7 +34,7 @@
     VALUES(#{deliveryId}, #{observedAt}, #{receivedAt}, #{forwarderVersion}, #{rawJson}, #{parseStatus}, #{errorCode})
   </insert>
   <select id="hookEventByDeliveryId" resultType="dev.tracelens.persistence.RawHookEvent">
-    SELECT * FROM raw_hook_event WHERE delivery_id = #{deliveryId}
+    SELECT * FROM raw_hook_event WHERE delivery_id_sha256 = UNHEX(SHA2(#{deliveryId}, 256)) AND delivery_id = #{deliveryId}
   </select>
   <insert id="insertNormalizationJob">
     INSERT INTO normalization_job(source_kind, source_id, status, attempts, available_at, created_at, updated_at)
@@ -69,14 +69,15 @@
       CASE WHEN #{eventName}='SessionEnd' THEN #{observedAt} END,
       CASE WHEN #{eventName}='SessionEnd' THEN 'COMPLETED' WHEN #{eventName}='SessionStart' THEN 'RUNNING' ELSE 'UNKNOWN' END,
       #{observedAt}, 1)
-    ON CONFLICT(session_id) DO UPDATE SET
-      transcript_path=COALESCE(hook_session.transcript_path, excluded.transcript_path),
-      started_at=COALESCE(hook_session.started_at, excluded.started_at),
-      ended_at=COALESCE(hook_session.ended_at, excluded.ended_at),
+    AS incoming
+    ON DUPLICATE KEY UPDATE
+      transcript_path=COALESCE(hook_session.transcript_path, incoming.transcript_path),
+      started_at=COALESCE(hook_session.started_at, incoming.started_at),
+      ended_at=COALESCE(hook_session.ended_at, incoming.ended_at),
       state=CASE WHEN hook_session.state IN ('COMPLETED','INTERRUPTED') THEN hook_session.state
-                 WHEN excluded.state='COMPLETED' THEN excluded.state
-                 WHEN hook_session.state='RUNNING' THEN hook_session.state ELSE excluded.state END,
-      last_observed_at=MAX(hook_session.last_observed_at, excluded.last_observed_at), version=hook_session.version+1
+                 WHEN incoming.state='COMPLETED' THEN incoming.state
+                 WHEN hook_session.state='RUNNING' THEN hook_session.state ELSE incoming.state END,
+      last_observed_at=GREATEST(hook_session.last_observed_at, incoming.last_observed_at), version=hook_session.version+1
   </insert>
   <insert id="upsertHookTurn">
     INSERT INTO hook_turn(session_id, turn_id, started_at, ended_at, state, version)
@@ -85,12 +86,13 @@
       CASE WHEN #{eventName} IN ('Stop','Interrupt') THEN #{observedAt} END,
       CASE WHEN #{eventName}='Stop' THEN 'COMPLETED' WHEN #{eventName}='Interrupt' THEN 'INTERRUPTED'
            WHEN #{eventName}='UserPromptSubmit' THEN 'RUNNING' ELSE 'UNKNOWN' END, 1)
-    ON CONFLICT(session_id, turn_id) DO UPDATE SET
-      started_at=COALESCE(hook_turn.started_at, excluded.started_at),
-      ended_at=COALESCE(hook_turn.ended_at, excluded.ended_at),
+    AS incoming
+    ON DUPLICATE KEY UPDATE
+      started_at=COALESCE(hook_turn.started_at, incoming.started_at),
+      ended_at=COALESCE(hook_turn.ended_at, incoming.ended_at),
       state=CASE WHEN hook_turn.state IN ('COMPLETED','INTERRUPTED') THEN hook_turn.state
-                 WHEN excluded.state IN ('COMPLETED','INTERRUPTED') THEN excluded.state
-                 WHEN hook_turn.state='RUNNING' THEN hook_turn.state ELSE excluded.state END,
+                 WHEN incoming.state IN ('COMPLETED','INTERRUPTED') THEN incoming.state
+                 WHEN hook_turn.state='RUNNING' THEN hook_turn.state ELSE incoming.state END,
       version=hook_turn.version+1
   </insert>
   <insert id="upsertHookTool">
@@ -100,38 +102,39 @@
       CASE WHEN #{eventName}='PreToolUse' THEN #{observedAt} END,
       CASE WHEN #{eventName}='PostToolUse' THEN #{observedAt} END,
       CASE WHEN #{eventName}='PreToolUse' THEN 'RUNNING' ELSE #{terminalState} END, NULL, 0, 1)
-    ON CONFLICT(session_id, turn_id, tool_use_id) DO UPDATE SET
-      tool_name=COALESCE(hook_tool_call.tool_name, excluded.tool_name),
-      pre_observed_at=COALESCE(hook_tool_call.pre_observed_at, excluded.pre_observed_at),
-      post_observed_at=COALESCE(hook_tool_call.post_observed_at, excluded.post_observed_at),
+    AS incoming
+    ON DUPLICATE KEY UPDATE
+      tool_name=COALESCE(hook_tool_call.tool_name, incoming.tool_name),
+      pre_observed_at=COALESCE(hook_tool_call.pre_observed_at, incoming.pre_observed_at),
+      post_observed_at=COALESCE(hook_tool_call.post_observed_at, incoming.post_observed_at),
       state=CASE WHEN hook_tool_call.state IN ('SUCCESS','FAILED','INTERRUPTED') THEN hook_tool_call.state
-                 WHEN excluded.state IN ('SUCCESS','FAILED','INTERRUPTED') THEN excluded.state
-                 WHEN hook_tool_call.state='RUNNING' THEN hook_tool_call.state ELSE excluded.state END,
+                 WHEN incoming.state IN ('SUCCESS','FAILED','INTERRUPTED') THEN incoming.state
+                 WHEN hook_tool_call.state='RUNNING' THEN hook_tool_call.state ELSE incoming.state END,
       estimated_duration_ms=CASE
-        WHEN COALESCE(hook_tool_call.post_observed_at, excluded.post_observed_at) &gt;= COALESCE(hook_tool_call.pre_observed_at, excluded.pre_observed_at)
-        THEN COALESCE(hook_tool_call.post_observed_at, excluded.post_observed_at)-COALESCE(hook_tool_call.pre_observed_at, excluded.pre_observed_at) END,
+        WHEN COALESCE(hook_tool_call.post_observed_at, incoming.post_observed_at) &gt;= COALESCE(hook_tool_call.pre_observed_at, incoming.pre_observed_at)
+        THEN COALESCE(hook_tool_call.post_observed_at, incoming.post_observed_at)-COALESCE(hook_tool_call.pre_observed_at, incoming.pre_observed_at) END,
       duration_valid=CASE
-        WHEN COALESCE(hook_tool_call.pre_observed_at, excluded.pre_observed_at) IS NOT NULL
-         AND COALESCE(hook_tool_call.post_observed_at, excluded.post_observed_at) IS NOT NULL
-         AND COALESCE(hook_tool_call.post_observed_at, excluded.post_observed_at) &gt;= COALESCE(hook_tool_call.pre_observed_at, excluded.pre_observed_at)
+        WHEN COALESCE(hook_tool_call.pre_observed_at, incoming.pre_observed_at) IS NOT NULL
+         AND COALESCE(hook_tool_call.post_observed_at, incoming.post_observed_at) IS NOT NULL
+         AND COALESCE(hook_tool_call.post_observed_at, incoming.post_observed_at) &gt;= COALESCE(hook_tool_call.pre_observed_at, incoming.pre_observed_at)
         THEN 1 ELSE 0 END,
       version=hook_tool_call.version+1
   </insert>
   <update id="updateHookParseStatus">
     UPDATE raw_hook_event SET parse_status=#{status}, error_code=#{errorCode} WHERE id=#{id}
   </update>
-  <select id="hookSession" resultType="map">SELECT * FROM hook_session WHERE session_id=#{sessionId}</select>
+  <select id="hookSession" resultType="map">SELECT * FROM hook_session WHERE session_id_sha256=UNHEX(SHA2(#{sessionId}, 256)) AND session_id=#{sessionId}</select>
   <select id="hookTurn" resultType="map">
-    SELECT * FROM hook_turn WHERE session_id=#{sessionId} AND turn_id=#{turnId}
+    SELECT * FROM hook_turn WHERE session_id_sha256=UNHEX(SHA2(#{sessionId}, 256)) AND session_id=#{sessionId} AND turn_id=#{turnId}
   </select>
   <select id="hookTool" resultType="map">
-    SELECT * FROM hook_tool_call WHERE session_id=#{sessionId} AND turn_id=#{turnId} AND tool_use_id=#{toolUseId}
+    SELECT * FROM hook_tool_call WHERE session_id_sha256=UNHEX(SHA2(#{sessionId}, 256)) AND session_id=#{sessionId} AND turn_id_sha256=UNHEX(SHA2(#{turnId}, 256)) AND tool_use_id_sha256=UNHEX(SHA2(#{toolUseId}, 256)) AND turn_id=#{turnId} AND tool_use_id=#{toolUseId}
   </select>
   <select id="sessionTurns" resultType="map">
     SELECT t.session_id, t.turn_id, t.started_at, t.ended_at, t.state, s.transcript_path,
-      COALESCE((SELECT json_extract(h.raw_json,'$.prompt') FROM raw_hook_event h WHERE json_extract(h.raw_json,'$.turn_id')=t.turn_id AND json_extract(h.raw_json,'$.hook_event_name')='UserPromptSubmit' ORDER BY h.id LIMIT 1),'等待用户问题内容补齐') title,
-      (SELECT json_extract(h.raw_json,'$.model') FROM raw_hook_event h WHERE json_extract(h.raw_json,'$.turn_id')=t.turn_id ORDER BY h.id LIMIT 1) model,
-      (SELECT json_extract(h.raw_json,'$.cwd') FROM raw_hook_event h WHERE json_extract(h.raw_json,'$.turn_id')=t.turn_id ORDER BY h.id LIMIT 1) cwd,
+      COALESCE((SELECT JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.prompt')) FROM raw_hook_event h WHERE JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.turn_id'))=t.turn_id AND JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.hook_event_name'))='UserPromptSubmit' ORDER BY h.id LIMIT 1),'等待用户问题内容补齐') title,
+      (SELECT JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.model')) FROM raw_hook_event h WHERE JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.turn_id'))=t.turn_id ORDER BY h.id LIMIT 1) model,
+      (SELECT JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.cwd')) FROM raw_hook_event h WHERE JSON_UNQUOTE(JSON_EXTRACT(h.raw_json, '$.turn_id'))=t.turn_id ORDER BY h.id LIMIT 1) cwd,
       b.path_status transcript_path_status,b.session_check_status,
       (SELECT COUNT(*) FROM hook_tool_call x WHERE x.turn_id=t.turn_id) tool_count,
       (SELECT SUM(estimated_duration_ms) FROM hook_tool_call x WHERE x.turn_id=t.turn_id AND duration_valid=1) tool_ms,
@@ -139,14 +142,14 @@
       CASE WHEN t.started_at IS NOT NULL AND t.ended_at &gt;= t.started_at THEN t.ended_at-t.started_at END duration_ms
     FROM hook_turn t JOIN hook_session s ON s.session_id=t.session_id LEFT JOIN transcript_binding b ON b.session_id=t.session_id
     <if test="query != null and query != ''">
-      WHERE lower(t.session_id) LIKE '%' || lower(#{query}) || '%' OR lower(t.turn_id) LIKE '%' || lower(#{query}) || '%'
+      WHERE lower(t.session_id) LIKE CONCAT('%', lower(#{query}), '%') OR lower(t.turn_id) LIKE CONCAT('%', lower(#{query}), '%')
     </if>
     ORDER BY COALESCE(t.started_at, 0) DESC, t.turn_id LIMIT #{limit} OFFSET #{offset}
   </select>
   <select id="countSessionTurns" resultType="long">
     SELECT COUNT(*) FROM hook_turn t
     <if test="query != null and query != ''">
-      WHERE lower(t.session_id) LIKE '%' || lower(#{query}) || '%' OR lower(t.turn_id) LIKE '%' || lower(#{query}) || '%'
+      WHERE lower(t.session_id) LIKE CONCAT('%', lower(#{query}), '%') OR lower(t.turn_id) LIKE CONCAT('%', lower(#{query}), '%')
     </if>
   </select>
   <select id="turnById" resultType="map">
@@ -160,11 +163,12 @@
   </select>
   <select id="hookEventsForTurn" resultType="map">
     SELECT id, delivery_id, observed_at, raw_json, parse_status FROM raw_hook_event
-    WHERE json_extract(raw_json, '$.turn_id')=#{turnId} ORDER BY observed_at, id
+    WHERE JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.turn_id'))=#{turnId} ORDER BY observed_at, id
   </select>
   <insert id="insertRawOtel">
-    INSERT OR IGNORE INTO raw_otel_object(batch_id, object_index, signal_type, trace_id, span_id, turn_id, call_id, object_kind, duration_ms, event_time, received_at, raw_json, parse_status)
+    INSERT INTO raw_otel_object(batch_id, object_index, signal_type, trace_id, span_id, turn_id, call_id, object_kind, duration_ms, event_time, received_at, raw_json, parse_status)
     VALUES(#{batchId}, #{objectIndex}, #{signalType}, #{traceId}, #{spanId}, #{turnId}, #{callId}, #{objectKind}, #{durationMs}, #{eventTime}, #{receivedAt}, #{rawJson}, #{parseStatus})
+   ON DUPLICATE KEY UPDATE id=raw_otel_object.id
   </insert>
   <select id="countRawOtel" resultType="long">SELECT COUNT(*) FROM raw_otel_object WHERE signal_type=#{signalType}</select>
   <select id="sessionsNeedingTranscriptCheck" resultType="map">
@@ -177,10 +181,11 @@
       session_meta_record_id, jsonl_session_id, session_check_status, adapter_version, checked_at)
     VALUES(#{sessionId},#{configuredPath},#{canonicalPath},#{pathStatus},#{sourceFileId},#{sessionMetaRecordId},
       #{jsonlSessionId},#{sessionCheckStatus},#{adapterVersion},#{checkedAt})
-    ON CONFLICT(session_id) DO UPDATE SET configured_path=excluded.configured_path, canonical_path=excluded.canonical_path,
-      path_status=excluded.path_status, source_file_id=excluded.source_file_id,
-      session_meta_record_id=excluded.session_meta_record_id, jsonl_session_id=excluded.jsonl_session_id,
-      session_check_status=excluded.session_check_status, adapter_version=excluded.adapter_version, checked_at=excluded.checked_at
+    AS incoming
+    ON DUPLICATE KEY UPDATE configured_path=incoming.configured_path, canonical_path=incoming.canonical_path,
+      path_status=incoming.path_status, source_file_id=incoming.source_file_id,
+      session_meta_record_id=incoming.session_meta_record_id, jsonl_session_id=incoming.jsonl_session_id,
+      session_check_status=incoming.session_check_status, adapter_version=incoming.adapter_version, checked_at=incoming.checked_at
   </insert>
   <select id="transcriptBindings" resultType="map">SELECT * FROM transcript_binding ORDER BY checked_at DESC</select>
   <select id="recordsForSource" resultType="dev.tracelens.persistence.RawRecord">
@@ -189,11 +194,12 @@
   <insert id="upsertUnknownFingerprint">
     INSERT INTO unknown_fingerprint(fingerprint_sha256,canonical_shape,source_kind,first_seen_at,last_seen_at,occurrence_count,mapping_status)
     VALUES(#{sha},#{shape},'JSONL',#{now},#{now},0,'UNMAPPED')
-    ON CONFLICT(fingerprint_sha256) DO NOTHING
+    ON DUPLICATE KEY UPDATE fingerprint_sha256=fingerprint_sha256
   </insert>
   <update id="incrementUnknownFingerprint">UPDATE unknown_fingerprint SET last_seen_at=#{now}, occurrence_count=occurrence_count+1 WHERE id=#{id}</update>
   <select id="unknownFingerprintId" resultType="long">SELECT id FROM unknown_fingerprint WHERE fingerprint_sha256=#{sha}</select>
-  <insert id="linkUnknownRecord">INSERT OR IGNORE INTO unknown_record(fingerprint_id,raw_record_id) VALUES(#{fingerprintId},#{rawRecordId})</insert>
+  <insert id="linkUnknownRecord">INSERT INTO unknown_record(fingerprint_id,raw_record_id) VALUES(#{fingerprintId},#{rawRecordId}) ON DUPLICATE KEY UPDATE raw_record_id=unknown_record.raw_record_id
+  </insert>
   <select id="unknownFingerprints" resultType="map">
     SELECT * FROM unknown_fingerprint ORDER BY last_seen_at DESC LIMIT #{limit} OFFSET #{offset}
   </select>
@@ -210,10 +216,11 @@
   </insert>
   <update id="updateUnknownMappingStatus">UPDATE unknown_fingerprint SET mapping_status=#{status} WHERE id=#{id}</update>
   <insert id="alignExactOtelTools">
-    INSERT OR IGNORE INTO performance_alignment(hook_node_type,hook_node_id,otel_object_id,level,evidence_json,algorithm_version,time_delta_ms)
+    INSERT INTO performance_alignment(hook_node_type,hook_node_id,otel_object_id,level,evidence_json,algorithm_version,time_delta_ms)
     SELECT 'TOOL',h.tool_use_id,o.id,'EXACT','{"field":"tool_use_id/call_id"}','codex-2026-09',
       ABS(COALESCE(h.pre_observed_at,h.post_observed_at)-COALESCE(o.event_time,o.received_at))
     FROM hook_tool_call h JOIN raw_otel_object o ON o.call_id=h.tool_use_id
+   ON DUPLICATE KEY UPDATE id=performance_alignment.id
   </insert>
   <select id="performanceForTurn" resultType="map">
     SELECT DISTINCT o.* FROM raw_otel_object o LEFT JOIN performance_alignment a ON a.otel_object_id=o.id
@@ -225,8 +232,9 @@
     WHERE h.turn_id=#{turnId} ORDER BY a.id
   </select>
   <insert id="insertJsonlSupplement">
-    INSERT OR IGNORE INTO jsonl_supplement(hook_node_type,hook_node_id,raw_record_id,content_kind,call_id,mapping_level,evidence_json,adapter_version,content_text)
+    INSERT INTO jsonl_supplement(hook_node_type,hook_node_id,raw_record_id,content_kind,call_id,mapping_level,evidence_json,adapter_version,content_text)
     VALUES(#{nodeType},#{nodeId},#{rawRecordId},#{contentKind},#{callId},#{mappingLevel},#{evidenceJson},#{adapterVersion},#{contentText})
+   ON DUPLICATE KEY UPDATE id=jsonl_supplement.id
   </insert>
   <select id="supplementsForTurn" resultType="map">
     SELECT s.*,r.raw_text FROM jsonl_supplement s JOIN raw_jsonl_record r ON r.id=s.raw_record_id

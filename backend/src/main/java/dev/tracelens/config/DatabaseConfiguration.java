@@ -8,44 +8,50 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
-import org.sqlite.SQLiteConfig;
-import org.sqlite.SQLiteDataSource;
-import org.mybatis.spring.boot.autoconfigure.ConfigurationCustomizer;
-import org.apache.ibatis.type.ByteArrayTypeHandler;
-import org.apache.ibatis.type.JdbcType;
 
 import javax.sql.DataSource;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 @Configuration
 @EnableConfigurationProperties(JsonlProperties.class)
 public class DatabaseConfiguration {
     @Bean
-    ConfigurationCustomizer sqliteBytes() {
-        // SQLite supports getBytes, but not the JDBC getBlob API used by MyBatis' default BLOB handler.
-        return configuration -> configuration.getTypeHandlerRegistry()
-                .register(byte[].class, JdbcType.BLOB, new ByteArrayTypeHandler());
-    }
-
-    @Bean
-    DataSource dataSource(@Value("${analyzer.database}") String filename) throws IOException {
-        Path path = Path.of(filename).toAbsolutePath().normalize();
-        Files.createDirectories(path.getParent());
-        SQLiteConfig sqlite = new SQLiteConfig();
-        sqlite.setJournalMode(SQLiteConfig.JournalMode.WAL);
-        sqlite.enforceForeignKeys(true);
-        sqlite.setBusyTimeout(5000);
-        SQLiteDataSource source = new SQLiteDataSource(sqlite);
-        source.setUrl("jdbc:sqlite:" + path);
+    DataSource dataSource(
+            @Value("${analyzer.database.url}") String url,
+            @Value("${MYSQL_HOST:127.0.0.1}") String host,
+            @Value("${analyzer.database.username}") String username,
+            @Value("${analyzer.database.password}") String password,
+            @Value("${analyzer.database.pool.maximum-size}") int maximumPoolSize,
+            @Value("${analyzer.database.pool.minimum-idle}") int minimumIdle,
+            @Value("${analyzer.database.pool.connection-timeout-ms}") long connectionTimeout,
+            @Value("${analyzer.database.pool.socket-timeout-ms}") int socketTimeout,
+            @Value("${analyzer.database.pool.connection-time-zone}") String connectionTimeZone,
+            @Value("${analyzer.database.pool.connection-collation}") String connectionCollation,
+            @Value("${analyzer.database.pool.session-variables}") String sessionVariables) {
+        if (username.isBlank()) throw new IllegalArgumentException("MYSQL_USERNAME must not be blank");
+        if (password.isBlank()) throw new IllegalArgumentException("MYSQL_PASSWORD must not be blank");
+        if (!java.util.Set.of("127.0.0.1", "localhost", "::1").contains(host)) {
+            throw new IllegalArgumentException("Database URL must point to a loopback MySQL instance");
+        }
         HikariConfig pool = new HikariConfig();
-        pool.setDataSource(source);
-        pool.setMaximumPoolSize(1);
-        pool.setMinimumIdle(1);
-        pool.setPoolName("trace-lens-sqlite");
-        return new HikariDataSource(pool);
+        pool.setJdbcUrl(url);
+        pool.setUsername(username);
+        pool.setPassword(password);
+        pool.setMaximumPoolSize(maximumPoolSize);
+        pool.setMinimumIdle(minimumIdle);
+        pool.setConnectionTimeout(connectionTimeout);
+        pool.setPoolName("trace-lens-mysql");
+        pool.setTransactionIsolation("TRANSACTION_READ_COMMITTED");
+        pool.addDataSourceProperty("characterEncoding", "UTF-8");
+        pool.addDataSourceProperty("connectionCollation", connectionCollation);
+        pool.addDataSourceProperty("connectionTimeZone", connectionTimeZone);
+        pool.addDataSourceProperty("useAffectedRows", "true");
+        pool.addDataSourceProperty("connectTimeout", "5000");
+        pool.addDataSourceProperty("socketTimeout", Integer.toString(socketTimeout));
+        // Keep invalid/truncated values as errors, including in duplicate-key writes.
+        pool.addDataSourceProperty("sessionVariables", sessionVariables);
+        return pool;
     }
 
     @Bean

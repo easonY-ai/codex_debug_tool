@@ -9,6 +9,7 @@
 3. [数据与关联模型](./03-data-and-correlation.md)：Hook、JSONL、OTel 的职责，以及跨数据源关联的可信度规则。
 4. [H5 原型规格](./04-prototype-spec.md)：第一阶段页面、交互、Mock 数据和验收门槛。
 5. [原型设计基线](./05-prototype-baseline.md)：已确认 V1 的源码位置、冻结范围、参考顺序和变更规则。
+6. [MySQL 切换方案](./06-mysql-migration.md)：MySQL 与环境变量需求、实现影响和编码前门禁。
 
 ## 已确认决策
 
@@ -18,10 +19,11 @@
 - Hook-first 采集与兼容性方案 V2 已确认，冻结在 `prototype-v2`；正式前后端按该版本进入编码。
 - 正式前端代码线位于 `../frontend`，后续真实功能只在该目录实现。
 - 原型确认后才开发 Java 后端；正式前端在后端可用前允许暂时保留 Mock 数据适配层。
-- 后端采用 Java 21、Spring Boot、MyBatis 和 SQLite。
+- 后端采用 Java 21、Spring Boot、MyBatis；数据库使用本机 MySQL，配置与验收见 MySQL 切换方案。
 - 前端采用 Vue 3、TypeScript、Vite、Element Plus 和 Apache ECharts。
 - Hook 是 Session、Turn 和 Tool Call 骨架的主事实来源；JSONL 通过 transcript 补齐可见内容，OTel 补齐精确性能。三源允许乱序到达，不假设逐事件天然精确融合。
 - 本地数据库可以保存完整内容，但公开仓库不得包含任何真实会话、账号或机器信息。
+- 运行配置统一由 `backend/src/main/resources/application.yml` 管理；敏感值只在该文件使用环境变量占位符注入，Java 代码不得手工读取环境变量或硬编码连接池参数。
 
 ## 迭代规则
 

@@ -19,7 +19,7 @@ cd backend
 java -jar target/trace-lens-backend-0.1.0-SNAPSHOT.jar
 ```
 
-默认监听 `127.0.0.1:8080`，数据库位于用户目录的 `.trace-lens/analyzer.sqlite`。默认不采集任何 Codex 文件。设置 `--analyzer.database` 可以指定其他数据库文件。
+默认监听 `127.0.0.1:8080`，连接本机已初始化的 MySQL `codex_analyze` 库。启动前设置 `MYSQL_USERNAME` 和 `MYSQL_PASSWORD`；可选 `MYSQL_HOST`、`MYSQL_PORT`。旧 SQLite 文件不会被读取或迁移。
 
 明确配置采集根目录后启用；以下路径是虚构示例，应替换为已授权的本地目录，程序读取其中的 `sessions` 子目录：
 
@@ -27,7 +27,6 @@ java -jar target/trace-lens-backend-0.1.0-SNAPSHOT.jar
 java -jar target/trace-lens-backend-0.1.0-SNAPSHOT.jar \
   --analyzer.jsonl.enabled=true \
   --analyzer.jsonl.root=/workspace/demo-codex \
-  --analyzer.database=/workspace/demo-data/analyzer.sqlite
 ```
 
 应用不会修改 Codex 配置。采集数据只保存在本机，不向外部发送。开发时 Vite 已代理 `/api` 与 `/v1` 到本机后端。
