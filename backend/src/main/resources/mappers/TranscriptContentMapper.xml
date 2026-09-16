@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="dev.tracelens.infrastructure.transcriptcontent.TranscriptContentMapper">
+  <select id="findSessionsWithTranscript" resultType="dev.tracelens.domain.transcriptcontent.TranscriptSessionCandidate">
+    SELECT session_id, transcript_path
+    FROM hook_session
+    WHERE transcript_path IS NOT NULL
+    ORDER BY last_observed_at, session_id_sha256
+  </select>
+  <select id="turnExists" resultType="boolean">
+    SELECT EXISTS(
+      SELECT 1 FROM hook_turn
+      WHERE session_id_sha256=UNHEX(SHA2(#{sessionId}, 256)) AND session_id=#{sessionId}
+        AND turn_id_sha256=UNHEX(SHA2(#{turnId}, 256)) AND turn_id=#{turnId}
+    )
+  </select>
+  <select id="toolExists" resultType="boolean">
+    SELECT EXISTS(
+      SELECT 1 FROM hook_tool_call
+      WHERE session_id_sha256=UNHEX(SHA2(#{sessionId}, 256)) AND session_id=#{sessionId}
+        AND turn_id_sha256=UNHEX(SHA2(#{turnId}, 256)) AND turn_id=#{turnId}
+        AND tool_use_id_sha256=UNHEX(SHA2(#{toolUseId}, 256)) AND tool_use_id=#{toolUseId}
+    )
+  </select>
+  <select id="sourceByPath" resultType="dev.tracelens.persistence.SourceFile">
+    SELECT * FROM source_file WHERE path_sha256=UNHEX(SHA2(#{path}, 256)) AND path=#{path}
+  </select>
+  <select id="recordsForSource" resultType="dev.tracelens.domain.transcriptcontent.RawTranscriptRecord">
+    SELECT id, parse_status, raw_text
+    FROM raw_jsonl_record
+    WHERE source_id=#{sourceId}
+    ORDER BY generation, byte_offset
+  </select>
+  <insert id="upsertBinding">
+    INSERT INTO transcript_binding(session_id, configured_path, canonical_path, path_status, source_file_id,
+      session_meta_record_id, jsonl_session_id, session_check_status, adapter_version, checked_at)
+    VALUES(#{sessionId},#{configuredPath},#{canonicalPath},#{pathStatus},#{sourceFileId},#{sessionMetaRecordId},
+      #{jsonlSessionId},#{sessionCheckStatus},#{adapterVersion},#{checkedAt})
+    AS incoming
+    ON DUPLICATE KEY UPDATE configured_path=incoming.configured_path, canonical_path=incoming.canonical_path,
+      path_status=incoming.path_status, source_file_id=incoming.source_file_id,
+      session_meta_record_id=incoming.session_meta_record_id, jsonl_session_id=incoming.jsonl_session_id,
+      session_check_status=incoming.session_check_status, adapter_version=incoming.adapter_version,
+      checked_at=incoming.checked_at
+  </insert>
+  <select id="findBindings" resultType="dev.tracelens.domain.transcriptcontent.TranscriptBinding">
+    SELECT session_id, configured_path, canonical_path, path_status, source_file_id,
+      session_meta_record_id, jsonl_session_id, session_check_status, adapter_version, checked_at
+    FROM transcript_binding
+    ORDER BY checked_at DESC, id DESC
+  </select>
+  <insert id="insertSupplement">
+    INSERT INTO jsonl_supplement(hook_node_type,hook_node_id,raw_record_id,content_kind,call_id,
+      mapping_level,evidence_json,adapter_version,content_text)
+    VALUES(#{supplement.hookNodeType},#{supplement.hookNodeId},#{supplement.rawRecordId},
+      #{supplement.contentKind},#{supplement.callId},#{supplement.mappingLevel},#{evidenceJson},
+      #{supplement.adapterVersion},#{supplement.contentText})
+    ON DUPLICATE KEY UPDATE id=jsonl_supplement.id
+  </insert>
+  <select id="findSupplementsForTurn" resultType="dev.tracelens.domain.transcriptcontent.TranscriptSupplementEvidence">
+    SELECT s.id, s.hook_node_type, s.hook_node_id, s.raw_record_id, s.content_kind, s.call_id,
+      s.mapping_level, s.adapter_version, s.content_text, r.raw_text raw_json
+    FROM jsonl_supplement s
+    JOIN raw_jsonl_record r ON r.id=s.raw_record_id
+    WHERE (s.hook_node_type='TURN' AND s.hook_node_id=#{turnId})
+       OR (s.hook_node_type='TOOL' AND EXISTS(
+         SELECT 1 FROM hook_tool_call h
+         WHERE h.turn_id_sha256=UNHEX(SHA2(#{turnId}, 256)) AND h.turn_id=#{turnId}
+           AND h.tool_use_id_sha256=UNHEX(SHA2(s.hook_node_id, 256)) AND h.tool_use_id=s.hook_node_id))
+    ORDER BY r.event_time, r.id, s.id
+  </select>
+</mapper>

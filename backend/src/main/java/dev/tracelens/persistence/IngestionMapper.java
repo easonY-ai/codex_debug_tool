@@ -42,9 +42,6 @@ public interface IngestionMapper {
     List<java.util.Map<String, Object>> sessionTurns(@Param("query") String query, @Param("limit") int limit,
                                                       @Param("offset") int offset);
     long countSessionTurns(@Param("query") String query);
-    java.util.Map<String, Object> turnById(String turnId);
-    List<java.util.Map<String, Object>> toolsForTurn(String turnId);
-    List<java.util.Map<String, Object>> hookEventsForTurn(String turnId);
     void insertRawOtel(@Param("batchId") String batchId, @Param("objectIndex") int objectIndex,@Param("signalType") String signalType,
                        @Param("traceId") String traceId, @Param("spanId") String spanId,
                        @Param("turnId") String turnId, @Param("callId") String callId,
@@ -52,14 +49,6 @@ public interface IngestionMapper {
                        @Param("eventTime") Long eventTime, @Param("receivedAt") long receivedAt,
                        @Param("rawJson") String rawJson, @Param("parseStatus") String parseStatus);
     long countRawOtel(@Param("signalType") String signalType);
-    List<java.util.Map<String, Object>> sessionsNeedingTranscriptCheck();
-    void upsertTranscriptBinding(@Param("sessionId") String sessionId, @Param("configuredPath") String configuredPath,
-        @Param("canonicalPath") String canonicalPath, @Param("pathStatus") String pathStatus,
-        @Param("sourceFileId") Long sourceFileId, @Param("sessionMetaRecordId") Long sessionMetaRecordId,
-        @Param("jsonlSessionId") String jsonlSessionId, @Param("sessionCheckStatus") String sessionCheckStatus,
-        @Param("adapterVersion") String adapterVersion, @Param("checkedAt") long checkedAt);
-    List<java.util.Map<String, Object>> transcriptBindings();
-    List<RawRecord> recordsForSource(long sourceId);
     void upsertUnknownFingerprint(@Param("sha") String sha, @Param("shape") String shape, @Param("now") long now);
     void incrementUnknownFingerprint(@Param("id") long id, @Param("now") long now);
     Long unknownFingerprintId(String sha);
@@ -74,13 +63,10 @@ public interface IngestionMapper {
         @Param("validationError") String validationError, @Param("createdAt") long createdAt);
     void updateUnknownMappingStatus(@Param("id") long id, @Param("status") String status);
     void alignExactOtelTools();
-    List<java.util.Map<String,Object>> performanceForTurn(String turnId);
-    List<java.util.Map<String,Object>> alignmentsForTurn(String turnId);
     void insertJsonlSupplement(@Param("nodeType") String nodeType,@Param("nodeId") String nodeId,
         @Param("rawRecordId") long rawRecordId,@Param("contentKind") String contentKind,@Param("callId") String callId,
         @Param("mappingLevel") String mappingLevel,@Param("evidenceJson") String evidenceJson,
         @Param("adapterVersion") String adapterVersion,@Param("contentText") String contentText);
-    List<java.util.Map<String,Object>> supplementsForTurn(String turnId);
     java.util.Map<String,Object> latestUnknownMapping(long id);
     List<RawRecord> unknownRecords(long id);
 }

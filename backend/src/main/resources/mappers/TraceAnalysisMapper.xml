@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="dev.tracelens.infrastructure.tracequery.TraceAnalysisMapper">
+  <select id="findTurn" resultType="dev.tracelens.domain.tracequery.TraceAnalysisRepository$TraceTurn">
+    SELECT t.session_id, t.turn_id, t.started_at, t.ended_at, t.state,
+      s.state session_state, b.path_status transcript_path_status, b.session_check_status,
+      (SELECT COUNT(*) FROM hook_tool_call x WHERE x.turn_id=t.turn_id) tool_count,
+      (SELECT COUNT(DISTINCT a.hook_node_id) FROM performance_alignment a
+        JOIN hook_tool_call x ON x.tool_use_id=a.hook_node_id
+        WHERE x.turn_id=t.turn_id AND a.level='EXACT') otel_tool_count
+    FROM hook_turn t
+    JOIN hook_session s ON s.session_id=t.session_id
+    LEFT JOIN transcript_binding b ON b.session_id=t.session_id
+    WHERE t.turn_id=#{turnId}
+  </select>
+  <select id="findTools" resultType="dev.tracelens.domain.tracequery.TraceAnalysisRepository$TraceTool">
+    SELECT session_id, turn_id, tool_use_id, tool_name, pre_observed_at, post_observed_at,
+      state, estimated_duration_ms, duration_valid, version
+    FROM hook_tool_call
+    WHERE turn_id=#{turnId}
+    ORDER BY COALESCE(pre_observed_at, post_observed_at), tool_use_id
+  </select>
+  <select id="findHookEvents" resultType="dev.tracelens.domain.tracequery.TraceAnalysisRepository$HookEventEvidence">
+    SELECT id, delivery_id, observed_at, raw_json, parse_status
+    FROM raw_hook_event
+    WHERE (JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.turn_id')) COLLATE utf8mb4_0900_bin)=#{turnId}
+    ORDER BY observed_at, id
+  </select>
+  <select id="findPerformanceSpans" resultType="dev.tracelens.domain.tracequery.TraceAnalysisRepository$PerformanceSpanEvidence">
+    SELECT DISTINCT o.id, o.signal_type, o.trace_id, o.span_id, o.turn_id, o.call_id,
+      o.object_kind, o.duration_ms, o.event_time, o.received_at, o.raw_json, o.parse_status
+    FROM raw_otel_object o
+    LEFT JOIN performance_alignment a ON a.otel_object_id=o.id
+    LEFT JOIN hook_tool_call h ON a.hook_node_type='TOOL' AND a.hook_node_id=h.tool_use_id
+    WHERE o.turn_id=#{turnId} OR h.turn_id=#{turnId}
+    ORDER BY COALESCE(o.event_time,o.received_at)
+  </select>
+  <select id="findAlignments" resultType="dev.tracelens.domain.tracequery.TraceAnalysisRepository$PerformanceAlignmentEvidence">
+    SELECT a.id, a.hook_node_type, a.hook_node_id, a.otel_object_id, a.level,
+      a.evidence_json, a.algorithm_version, a.time_delta_ms
+    FROM performance_alignment a
+    JOIN hook_tool_call h ON a.hook_node_type='TOOL' AND a.hook_node_id=h.tool_use_id
+    WHERE h.turn_id=#{turnId}
+    ORDER BY a.id
+  </select>
+</mapper>

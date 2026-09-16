@@ -2,8 +2,8 @@
 
 ## 执行策略
 
-- 当前只执行 `IT-HOOK-TRACE-001`，且由用户手工执行。
-- 该用例通过并完成代码阅读后，必须由用户明确同意，才能开始其他用例。
+- 当前只执行 `IT-HOOK-TRACE-002`，且由用户手工执行；`IT-HOOK-TRACE-001` 已完成并作为既有回归基线。
+- `IT-HOOK-TRACE-002` 通过并完成代码阅读后，必须由用户明确接受 S2，才能开始 S3/S3.1。
 - 历史自动化结果只作为回归基线，不代替本次真实 Codex 人工验收。
 - 真实数据只留在本机，不得将会话、凭据、本机路径或日志提交到公开仓库。
 
@@ -111,11 +111,55 @@ npm run dev -- --port 4173
 
 只提供失败步骤、`/hooks` 来源/信任状态/错误摘要、脱敏的 Hook status 计数、浏览器错误和 HTTP 状态码；不粘贴数据库密码、完整 transcript 或其他真实对话。
 
+## IT-HOOK-TRACE-002：真实 Transcript 内容补齐
+
+### 执行条件
+
+- S2 自动单元测试、JDK 17/MySQL 集成测试和正式前端测试已经通过并记录。
+- 使用“人工环境准备”中的 JDK 17、uv Python 3.11、项目级受信任 Hook、独立本机 MySQL 和正式前端。
+- `analyzer.jsonl.enabled=true`，`analyzer.jsonl.root` 指向当前 Codex 数据根目录；不得把实际根目录、日志或 transcript 内容写入仓库。
+
+### 目标
+
+验证真实 Codex 事件先由 Hook 建立 Session/Turn/Tool 骨架，再由该 Hook 的 `transcript_path` 定位同一会话 JSONL，经路径和 `session_meta` 校验后补齐用户输入、工具参数/结果和最终可见输出，并在 Trace 检查三源证据与缺源降级。
+
+### 手工步骤
+
+1. 查询 `GET /api/ingestion/hooks/status` 与 `GET /api/ingestion/transcripts/status`，记录脱敏计数，不复制路径或完整 ID。
+2. 在 `/hooks` 确认当前项目 Hook 已信任；新建 Codex 会话以产生新的 SessionStart 和 transcript。
+3. 在新会话发送固定提示：
+
+   ```text
+   请使用 Bash 执行 printf 'trace-lens-transcript-002\n'，然后只回复 trace-lens-transcript-002。
+   ```
+
+4. 等待完成，确认 Hook/日志没有阻断 Codex，最终回复为 `trace-lens-transcript-002`。
+5. 再次查询 transcript 状态，确认本次会话绑定的 `path_status=VALID`、`session_check_status=MATCHED`，并显示适配器版本；页面和检查记录不得暴露完整本机路径。
+6. 在分析总览搜索 `trace-lens-transcript-002`，确认只有一个 Hook 建立的对应 Turn；JSONL 不得额外创建第二个会话或 Turn。
+7. 进入 Trace，点击用户入口节点，确认“输入”来自 JSONL 补齐，并可分别检查 Hook 原始证据和对应 JSONL 原文；两侧 `turn_id` 属于同一轮次。
+8. 点击工具调用节点，确认可见 Bash 参数包含固定 `printf` 命令；点击工具结果节点，确认结果包含 `trace-lens-transcript-002`。进入工具节点的“关联证据”页签：若页面声明 `EXACT`，必须显示适配器版本、Hook `tool_use_id` 和 JSONL `call_id` 的相等证据；标识不同时必须显示 `BOUNDED`，不得声明精确关联。
+9. 点击最终状态/模型输出节点，确认最终可见输出为 `trace-lens-transcript-002`，并能查看来源 JSONL 原文；不得展示模型未公开思维链。
+10. 查看完整度和性能层：transcript 与内容覆盖应已提升；如未配置 OTel，TTFT/API/精确性能仍必须显示缺失，不得使用 JSONL 或 Hook 伪造。
+11. 手动触发一次 `POST /api/ingestion/rescan` 或等待下一次补扫，刷新同一 Trace，确认同一原始记录和内容节点没有重复。
+12. 按 `12-transcript-content-story-spec.md` 的代码阅读路线检查 Scheduler、Use Case、Domain、Repository、Jackson/FileSystem 适配器、查询 DTO 与正式前端映射，确认 Mapper 只做简单读写。
+
+### 通过标准
+
+- 步骤 1–12 全部通过。
+- Hook 是唯一骨架来源；JSONL 只在安全路径和 session ID 匹配后补内容。
+- 用户输入、工具参数、工具结果和最终输出都能从对应 Hook 节点检查到 JSONL 证据。
+- 重扫幂等，内容节点不重复。
+- JSONL/Hook/OTel 的来源、关联等级和缺失状态没有被混淆。
+
+### 失败时记录
+
+只记录失败步骤、绑定状态枚举、脱敏计数、HTTP 状态码和页面错误摘要。不得粘贴 transcript 路径、完整 ID、原始 JSONL、真实对话、数据库凭据或日志正文。
+
 ## 后续集成测试清单（未授权执行）
 
 | 编号 | 范围 | 关键预期 | 状态 |
 | --- | --- | --- | --- |
-| IT-HOOK-TRACE-002 | transcript 内容补齐 | session_meta 匹配后补齐用户、工具和最终内容 | 待 S1.1 完成后进入 S2 验收 |
+| IT-HOOK-TRACE-002 | transcript 内容补齐 | session_meta 匹配后补齐用户、工具和最终内容 | 可执行；自动回归已通过，等待用户执行步骤 1–12 |
 | IT-HOOK-TRACE-003 | OTel 工具性能 | 共享已验证 ID 时为 EXACT，耗时摘要守恒 | 待 S2 验收且 S3.1 完成 |
 | IT-HOOK-TRACE-004 | 实时 SSE | 运行中转完成，节点可检查 | 待 S3 验收 |
 | IT-HOOK-TRACE-005 | 重复与乱序 | 重复 delivery 去重，Post 先到可补齐，终态不回退 | 待 S4 验收 |
@@ -141,7 +185,16 @@ npm run dev -- --port 4173
 | 2026-09-15 | IT-HOOK-TRACE-001 步骤 1–10 | 用户 | 通过 | 用户已完成全部手工步骤和代码阅读；代码阅读发现的 OTel 精确关联契约问题已登记为后续 S3.1，不属于 S1 验收范围 |
 | 2026-09-16 | IT-HOOK-TRACE-001 步骤 1–10（Story0 回归） | 用户 | 通过 | 领域化架构升级后重新检查步骤 1–10，通过；该记录是 Story0 对 S1 主链路的人工回归证据 |
 | 2026-09-16 | E1-S1 真实 Codex Hook 主链路 | 用户 | 接受 | `IT-HOOK-TRACE-001` 全部步骤和代码阅读完成，用户明确确认“S1 OK”；Story 结束 |
+| 2026-09-16 | E1-S2 自动回归 | Codex | 通过 | 后端 JDK 17/MySQL `clean verify` 47 项通过；前端 5 个测试文件、19 项通过；生产构建通过；进入 `IT-HOOK-TRACE-002` 人工验收 |
+| 2026-09-16 | IT-HOOK-TRACE-002 步骤 8 | 用户 | 未通过 | 页面未在“关联证据”中显示 Transcript 的 `EXACT/BOUNDED` 说明及公共 ID 证据；进入 S2 展示实现修复 |
+| 2026-09-16 | S2 步骤 8 关联证据展示修复 | Codex | 自动验证通过 | 工具节点现明确显示 Transcript 关联等级、适配器版本及两侧 ID；前端 5 个测试文件、19 项通过，生产构建通过；等待用户复验步骤 8 |
+| 2026-09-16 | IT-HOOK-TRACE-002 步骤 8 复验 | 用户 | 未通过 | JSONL `call_id` 与 Hook `tool_use_id` 不同；PostToolUse 已按 `BOUNDED` 补齐，但 PreToolUse 未补齐 |
+| 2026-09-16 | S2 不同内部 turn_id 工具配对修复 | Codex | 自动验证通过 | 真实格式显示同一 JSONL `call_id` 的工具输入/输出可携带不同内部 `turn_id`；新增唯一 Hook Turn 候选规则和歧义拒绝用例，JDK 17/MySQL 全量 49 项通过；等待用户再次复验步骤 8 |
+| 2026-09-16 | IT-HOOK-TRACE-002 步骤 9 | 用户 | 未通过 | Stop 节点没有 JSONL 内容或关联；真实 transcript 的最终可见输出位于 `task_complete.last_agent_message`，当前适配器未覆盖 |
+| 2026-09-16 | S2 task_complete 最终输出适配修复 | Codex | 自动验证通过 | `task_complete.last_agent_message` 作为同 Turn 的 `MODEL_OUTPUT/BOUNDED` 补齐 Stop；JDK 17/MySQL 全量 49 项通过，等待用户复验步骤 9 |
+| 2026-09-16 | IT-HOOK-TRACE-002 步骤 1–10 | 用户 | 通过 | 用户在工具配对和 Stop 最终输出修复后确认步骤 1–10 均通过 |
+| 2026-09-16 | IT-HOOK-TRACE-002 步骤 11 | 用户 | 自动检查通过，待页面确认 | 连续两次执行增量补扫，均扫描 52 个文件、写入 0 条、失败 0；等待刷新同一 Trace 并确认内容节点无重复 |
 
 ## 当前结论
 
-E1-S1 已完成。Story0 已由用户确认完成，`IT-HOOK-TRACE-001` 步骤 1–10 已在升级后重新通过，且用户已明确接受 S1。E1-S1.1 的自动回归与 `IT-LOG-001` 人工验收也已通过，用户于 2026-09-16 明确接受 S1.1。下一候选 Story 为 E1-S2 transcript 内容补齐；在用户明确启动前，不执行其用例或开发工作。
+E1-S1 与 E1-S1.1 已完成并由用户接受。E1-S2 的领域化重构、自动回归和 `IT-HOOK-TRACE-002` 步骤 1–10 已通过；步骤 11 的两次补扫均为零新增、零失败，等待用户刷新页面确认节点无重复，之后进入步骤 12 代码阅读。用户明确接受 S2 前，不得启动 S3/S3.1。

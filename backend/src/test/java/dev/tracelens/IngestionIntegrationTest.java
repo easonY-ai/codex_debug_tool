@@ -3,7 +3,7 @@ package dev.tracelens;
 import dev.tracelens.config.JsonlProperties;
 import dev.tracelens.ingestion.JsonlScanner;
 import dev.tracelens.application.hooknormalization.NormalizeHookEventUseCase;
-import dev.tracelens.ingestion.TranscriptWorker;
+import dev.tracelens.application.transcriptcontent.SupplementTranscriptContentUseCase;
 import dev.tracelens.ingestion.RawLineParser;
 import dev.tracelens.persistence.IngestionMapper;
 import dev.tracelens.persistence.RawHookEvent;
@@ -42,7 +42,7 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
     @Autowired NormalizeHookEventUseCase hookWorker;
     @Autowired DataSource database;
     @Autowired MockMvc mvc;
-    @Autowired TranscriptWorker transcriptWorker;
+    @Autowired SupplementTranscriptContentUseCase transcriptContentUseCase;
 
     private static Path temporaryRoot() {
         try { return Files.createTempDirectory("trace-lens-synthetic-"); }
@@ -409,12 +409,56 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
           """);
         String raw="{\"session_id\":\"session-bound\",\"transcript_path\":\""+transcript+"\",\"cwd\":\"/workspace/demo-project\",\"model\":\"model-demo\",\"hook_event_name\":\"SessionStart\"}";
         postHook("10000000-0000-4000-8000-000000000041",1000,raw); hookWorker.processAvailable();
-        transcriptWorker.process();
+        transcriptContentUseCase.processAvailable();
         mvc.perform(get("/api/ingestion/transcripts/status").header("Host","localhost"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].path_status").value("VALID"))
-                .andExpect(jsonPath("$.items[0].session_check_status").value("MATCHED"));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].pathStatus").value("VALID"))
+                .andExpect(jsonPath("$.items[0].sessionCheckStatus").value("MATCHED"));
         mvc.perform(get("/api/unknown-fingerprints").header("Host","localhost"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].canonical_shape").value(org.hamcrest.Matchers.containsString("$.payload.items[*].text:string")));
+    }
+
+    @Test void matchedTranscriptSupplementsHookNodesIdempotently() throws Exception {
+        Path transcript = SESSIONS.resolve("content.jsonl");
+        Files.writeString(transcript, """
+          {"type":"session_meta","payload":{"session_id":"session-content"}}
+          {"type":"event_msg","payload":{"type":"user_message","turn_id":"turn-content","message":"Synthetic transcript question"}}
+          {"type":"response_item","payload":{"type":"function_call","call_id":"tool-content","arguments":"{\\"cmd\\":\\"printf demo\\"}","internal_chat_message_metadata_passthrough":{"turn_id":"turn-jsonl-internal"}}}
+          {"type":"response_item","payload":{"type":"function_call_output","call_id":"tool-content","output":"demo","internal_chat_message_metadata_passthrough":{"turn_id":"turn-content"}}}
+          {"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-content","last_agent_message":"Synthetic final answer"}}
+          """);
+        postHook("20000000-0000-4000-8000-000000000001", 1000, """
+          {"session_id":"session-content","transcript_path":"%s","cwd":"/workspace/demo-project","model":"model-demo",
+           "hook_event_name":"SessionStart","source":"startup"}""".formatted(transcript));
+        postHook("20000000-0000-4000-8000-000000000002", 2000, """
+          {"session_id":"session-content","transcript_path":"%s","cwd":"/workspace/demo-project","model":"model-demo",
+           "hook_event_name":"UserPromptSubmit","turn_id":"turn-content","prompt":"Hook prompt"}""".formatted(transcript));
+        postHook("20000000-0000-4000-8000-000000000003", 3000, """
+          {"session_id":"session-content","transcript_path":"%s","cwd":"/workspace/demo-project","model":"model-demo",
+           "hook_event_name":"PreToolUse","turn_id":"turn-content","tool_use_id":"tool-content","tool_name":"Bash","tool_input":{}}""".formatted(transcript));
+        postHook("20000000-0000-4000-8000-000000000004", 4000, """
+          {"session_id":"session-content","transcript_path":"%s","cwd":"/workspace/demo-project","model":"model-demo",
+           "hook_event_name":"PostToolUse","turn_id":"turn-content","tool_use_id":"tool-content","tool_name":"Bash","tool_response":{}}""".formatted(transcript));
+        postHook("20000000-0000-4000-8000-000000000005", 5000, """
+          {"session_id":"session-content","transcript_path":"%s","cwd":"/workspace/demo-project","model":"model-demo",
+           "hook_event_name":"Stop","turn_id":"turn-content","stop_hook_active":false}""".formatted(transcript));
+        while (hookWorker.processAvailable()) { }
+
+        transcriptContentUseCase.processAvailable();
+        transcriptContentUseCase.processAvailable();
+
+        mvc.perform(get("/api/sessions/turn-content/analysis").header("Host", "localhost"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session.transcriptPath").doesNotExist())
+                .andExpect(jsonPath("$.jsonlSupplements.length()").value(4))
+                .andExpect(jsonPath("$.jsonlSupplements[0].contentKind").value("USER_INPUT"))
+                .andExpect(jsonPath("$.jsonlSupplements[1].mappingLevel").value("EXACT"))
+                .andExpect(jsonPath("$.jsonlSupplements[3].contentText").value("Synthetic final answer"));
+        try (var connection = database.getConnection();
+             var statement = connection.createStatement();
+             var rows = statement.executeQuery("SELECT COUNT(*) FROM jsonl_supplement")) {
+            rows.next();
+            assertThat(rows.getLong(1)).isEqualTo(4);
+        }
     }
 }

@@ -9,7 +9,7 @@ Codex Hook 是标准会话、轮次与工具骨架的主事实来源，但不承
 ## 标识符命名空间
 
 - Hook command stdin 的官方公共字段中，`session_id` 标识会话，`transcript_path` 为可空字符串。Turn-scoped 事件另含 `turn_id`；只有 `PreToolUse` 与 `PostToolUse` 获得 `tool_use_id` 保证，`PermissionRequest` 没有该保证。
-- 已验证的 JSONL 格式在文件第一条 `session_meta` 记录的 `$.payload.session_id` 保存会话 ID；后续普通事件行不保证重复该字段。样本常见 `turn_id` 位于 `$.payload.internal_chat_message_metadata_passthrough.turn_id`，工具结果关联键常见为 `$.payload.call_id`。
+- 已验证的 JSONL 格式在文件第一条 `session_meta` 记录的 `$.payload.session_id` 保存会话 ID；后续普通事件行不保证重复该字段。样本常见 `turn_id` 位于 `$.payload.internal_chat_message_metadata_passthrough.turn_id`，工具调用与结果的内部 `turn_id` 可能不同，但同一次 JSONL 工具调用共享 `$.payload.call_id`。
 - `tool_use_id` 与 JSONL `call_id` 属于不同命名空间，不能仅因用途相似就声明相同。只有采集样本验证两者值相等且语义稳定时才可作为 `EXACT` 证据，否则只能结合会话、轮次、类型和时间形成候选。
 
 ## Hook 事件关联
@@ -44,11 +44,14 @@ JSONL 主要回答“Hook 节点对应的可见内容是什么”，可能包含
 
 - 会话和 Turn 元数据。
 - 用户输入和模型可见输出。
+- `task_complete.last_agent_message` 形式的最终可见输出。
 - 可见 reasoning summary。
 - 工具调用、工具参数、工具结果和 `call_id`。
 - Token、上下文、compaction 和任务状态。
 
 JSONL 内部可以通过 `turn_id`、`call_id` 等字段建立可靠关系。事件时间戳可以估算阶段耗时，但无法稳定拆分网络、服务端排队、TTFT 和模型推理。
+
+已验证适配器可以在同一份已完成 session 校验的 transcript 内，按完全相同的 JSONL `call_id` 配对工具调用与工具结果。如果一组配对记录中恰好只有一个 `turn_id` 对应现有 Hook Turn，则该 Turn 可作为整组工具内容的边界；其他内部 `turn_id` 仅作为 JSONL 原始证据保留。该规则只能产生 Turn 级 `BOUNDED` 补齐，不能证明 JSONL `call_id` 等于 Hook `tool_use_id`，也不能在零个或多个 Hook Turn 候选时选择时间最近者。
 
 ## OTel：性能调用链
 

@@ -126,45 +126,12 @@
       WHERE lower(t.session_id) LIKE CONCAT('%', lower(#{query}), '%') OR lower(t.turn_id) LIKE CONCAT('%', lower(#{query}), '%')
     </if>
   </select>
-  <select id="turnById" resultType="map">
-    SELECT t.*, s.transcript_path, s.state session_state,b.path_status transcript_path_status,b.session_check_status,
-      (SELECT COUNT(*) FROM hook_tool_call x WHERE x.turn_id=t.turn_id) tool_count,
-      (SELECT COUNT(DISTINCT a.hook_node_id) FROM performance_alignment a JOIN hook_tool_call x ON x.tool_use_id=a.hook_node_id WHERE x.turn_id=t.turn_id AND a.level='EXACT') otel_tool_count
-    FROM hook_turn t JOIN hook_session s ON s.session_id=t.session_id LEFT JOIN transcript_binding b ON b.session_id=t.session_id WHERE t.turn_id=#{turnId}
-  </select>
-  <select id="toolsForTurn" resultType="map">
-    SELECT * FROM hook_tool_call WHERE turn_id=#{turnId} ORDER BY COALESCE(pre_observed_at, post_observed_at), tool_use_id
-  </select>
-  <select id="hookEventsForTurn" resultType="map">
-    SELECT id, delivery_id, observed_at, raw_json, parse_status FROM raw_hook_event
-    WHERE (JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.turn_id')) COLLATE utf8mb4_0900_bin)=#{turnId} ORDER BY observed_at, id
-  </select>
   <insert id="insertRawOtel">
     INSERT INTO raw_otel_object(batch_id, object_index, signal_type, trace_id, span_id, turn_id, call_id, object_kind, duration_ms, event_time, received_at, raw_json, parse_status)
     VALUES(#{batchId}, #{objectIndex}, #{signalType}, #{traceId}, #{spanId}, #{turnId}, #{callId}, #{objectKind}, #{durationMs}, #{eventTime}, #{receivedAt}, #{rawJson}, #{parseStatus})
    ON DUPLICATE KEY UPDATE id=raw_otel_object.id
   </insert>
   <select id="countRawOtel" resultType="long">SELECT COUNT(*) FROM raw_otel_object WHERE signal_type=#{signalType}</select>
-  <select id="sessionsNeedingTranscriptCheck" resultType="map">
-    SELECT s.session_id, s.transcript_path FROM hook_session s
-    LEFT JOIN transcript_binding b ON b.session_id=s.session_id
-    WHERE s.transcript_path IS NOT NULL
-  </select>
-  <insert id="upsertTranscriptBinding">
-    INSERT INTO transcript_binding(session_id, configured_path, canonical_path, path_status, source_file_id,
-      session_meta_record_id, jsonl_session_id, session_check_status, adapter_version, checked_at)
-    VALUES(#{sessionId},#{configuredPath},#{canonicalPath},#{pathStatus},#{sourceFileId},#{sessionMetaRecordId},
-      #{jsonlSessionId},#{sessionCheckStatus},#{adapterVersion},#{checkedAt})
-    AS incoming
-    ON DUPLICATE KEY UPDATE configured_path=incoming.configured_path, canonical_path=incoming.canonical_path,
-      path_status=incoming.path_status, source_file_id=incoming.source_file_id,
-      session_meta_record_id=incoming.session_meta_record_id, jsonl_session_id=incoming.jsonl_session_id,
-      session_check_status=incoming.session_check_status, adapter_version=incoming.adapter_version, checked_at=incoming.checked_at
-  </insert>
-  <select id="transcriptBindings" resultType="map">SELECT * FROM transcript_binding ORDER BY checked_at DESC</select>
-  <select id="recordsForSource" resultType="dev.tracelens.persistence.RawRecord">
-    SELECT * FROM raw_jsonl_record WHERE source_id=#{sourceId} ORDER BY generation, byte_offset
-  </select>
   <insert id="upsertUnknownFingerprint">
     INSERT INTO unknown_fingerprint(fingerprint_sha256,canonical_shape,source_kind,first_seen_at,last_seen_at,occurrence_count,mapping_status)
     VALUES(#{sha},#{shape},'JSONL',#{now},#{now},0,'UNMAPPED')
@@ -196,25 +163,11 @@
     FROM hook_tool_call h JOIN raw_otel_object o ON o.call_id=h.tool_use_id
    ON DUPLICATE KEY UPDATE id=performance_alignment.id
   </insert>
-  <select id="performanceForTurn" resultType="map">
-    SELECT DISTINCT o.* FROM raw_otel_object o LEFT JOIN performance_alignment a ON a.otel_object_id=o.id
-    LEFT JOIN hook_tool_call h ON a.hook_node_type='TOOL' AND a.hook_node_id=h.tool_use_id
-    WHERE o.turn_id=#{turnId} OR h.turn_id=#{turnId} ORDER BY COALESCE(o.event_time,o.received_at)
-  </select>
-  <select id="alignmentsForTurn" resultType="map">
-    SELECT a.* FROM performance_alignment a JOIN hook_tool_call h ON a.hook_node_type='TOOL' AND a.hook_node_id=h.tool_use_id
-    WHERE h.turn_id=#{turnId} ORDER BY a.id
-  </select>
   <insert id="insertJsonlSupplement">
     INSERT INTO jsonl_supplement(hook_node_type,hook_node_id,raw_record_id,content_kind,call_id,mapping_level,evidence_json,adapter_version,content_text)
     VALUES(#{nodeType},#{nodeId},#{rawRecordId},#{contentKind},#{callId},#{mappingLevel},#{evidenceJson},#{adapterVersion},#{contentText})
    ON DUPLICATE KEY UPDATE id=jsonl_supplement.id
   </insert>
-  <select id="supplementsForTurn" resultType="map">
-    SELECT s.*,r.raw_text FROM jsonl_supplement s JOIN raw_jsonl_record r ON r.id=s.raw_record_id
-    WHERE (s.hook_node_type='TURN' AND s.hook_node_id=#{turnId}) OR s.call_id IN (SELECT tool_use_id FROM hook_tool_call WHERE turn_id=#{turnId})
-    ORDER BY r.event_time,r.id
-  </select>
   <select id="latestUnknownMapping" resultType="map">SELECT * FROM unknown_mapping WHERE fingerprint_id=#{id} AND status='VALID' ORDER BY version DESC LIMIT 1</select>
   <select id="unknownRecords" resultType="dev.tracelens.persistence.RawRecord">
     SELECT r.* FROM raw_jsonl_record r JOIN unknown_record u ON u.raw_record_id=r.id WHERE u.fingerprint_id=#{id} ORDER BY r.id

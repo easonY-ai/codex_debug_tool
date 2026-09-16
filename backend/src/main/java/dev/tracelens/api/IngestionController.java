@@ -28,12 +28,6 @@ public class IngestionController {
         this.mapper = mapper;
     }
 
-    @GetMapping("/transcripts/status")
-    public Map<String, Object> transcriptStatus() {
-        var items = mapper.transcriptBindings();
-        return Map.of("items", items, "total", items.size());
-    }
-
     @GetMapping("/status")
     public Status status() {
         var state = scanner.state();

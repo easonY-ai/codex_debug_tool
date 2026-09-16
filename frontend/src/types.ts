@@ -33,13 +33,25 @@ export interface TimelineItem {
   startMs: number
   durationMs: number
   status: 'success' | 'warning' | 'danger' | 'info'
-  source: 'Hook' | 'JSONL' | 'OTel Trace'
+  source: 'Hook' | 'Hook + JSONL' | 'JSONL' | 'OTel Trace'
   description: string
   input?: string
   output?: string
   raw: Record<string, unknown>
   callId?: string
   traceId?: string
+  jsonlEvidence?: TranscriptEvidence[]
+}
+
+export interface TranscriptEvidence {
+  id: number
+  hookNodeId: string
+  callId?: string
+  contentKind: 'USER_INPUT' | 'MODEL_OUTPUT' | 'REASONING_SUMMARY' | 'TOOL_INPUT' | 'TOOL_OUTPUT'
+  mappingLevel: 'EXACT' | 'BOUNDED'
+  adapterVersion: string
+  contentText: string
+  raw: Record<string, unknown>
 }
 
 export interface Alignment {

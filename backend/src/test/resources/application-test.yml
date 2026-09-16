@@ -1,0 +1,9 @@
+analyzer:
+  jsonl:
+    enabled: false
+    root: ""
+    automatic: false
+
+trace-lens:
+  transcripts:
+    enabled: false

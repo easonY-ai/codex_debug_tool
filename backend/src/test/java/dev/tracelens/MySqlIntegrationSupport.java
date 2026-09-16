@@ -1,6 +1,7 @@
 package dev.tracelens;
 
 /** Prevent destructive fixture cleanup from ever targeting an application database. */
+@org.springframework.test.context.ActiveProfiles("test")
 abstract class MySqlIntegrationSupport {
     @org.springframework.test.context.DynamicPropertySource
     static void testDatabase(org.springframework.test.context.DynamicPropertyRegistry registry) {

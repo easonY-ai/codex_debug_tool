@@ -288,6 +288,17 @@ aggregates
 - 不得记录 Hook stdin 或 HTTP body 原文、用户问题、工具参数/结果、完整标识符、transcript 路径、认证头、数据库连接信息、异常堆栈中的原始输入或其他凭据。
 - CLI 在 forwarder 投递完成或输入无效时记录脱敏结果类别；后端在 Hook 接收结果与归一化任务失败时记录脱敏诊断。业务日志由各子域入口产生，不能为了日志将领域规则迁回 Controller、Scheduler 或 Mapper。
 
+## S2 transcript 内容补齐领域边界
+
+- S2 新增 `transcript-content` 问题子域。`interfaces` 只保留定时调度和结构化状态 DTO；`application` 编排扫描、绑定校验、已知格式解析与补齐；`domain` 表达 `TranscriptBinding`、路径状态、会话校验状态、内容种类、关联等级和补齐规则；`infrastructure` 实现文件系统、Jackson 与 MyBatis 适配。
+- `TranscriptContentScheduler` 只调用 `SupplementTranscriptContentUseCase`，不得直接访问文件、Jackson 或 Mapper。原 `TranscriptWorker` 的调度、路径、解析、关联和持久化混合职责在 S2 移除。
+- `TranscriptBindingRepository` 只负责 transcript 文件级绑定；`JsonlSupplementRepository` 只负责 Hook 节点的内容补齐；原始 JSONL 来源与记录继续由独立 Repository 管理。Application 用例组合这些边界并定义事务，不使用通用 `Store` 或以复数领域对象命名 Repository 变量。
+- 路径必须位于配置根目录的 `sessions` 子树中，是可读、非符号链接的普通文件。空值、缺失、不可读、越界或符号链接均只更新绑定状态，不读取正文、不产生补齐。
+- 只有首条完整记录为 `session_meta` 且 `$.payload.session_id` 与 Hook `session_id` 完全一致时，后续记录才允许补齐该 Hook 会话。JSONL 不能独立创建 Session、Turn 或 Tool。
+- 已知适配器输出结构化内容类型：`USER_INPUT`、`MODEL_OUTPUT`、`REASONING_SUMMARY`、`TOOL_INPUT`、`TOOL_OUTPUT`；`event_msg.payload.type=task_complete` 的文本 `last_agent_message` 是 `MODEL_OUTPUT` 的已验证来源。普通 Turn 内容必须携带已解析 `turn_id`。同一已校验 transcript 内的工具输入/输出先按相同 JSONL `call_id` 分组；若组内恰好一个 `turn_id` 对应现有 Hook Turn，可把整组内容补到该 Turn 并标记 `BOUNDED`。只有 JSONL `call_id` 与该 Session/Turn 的 Hook `tool_use_id` 也相等时才标记 `EXACT`；零个或多个 Hook Turn 候选时不挂接，禁止按时间接近选择。
+- Trace 查询返回明确的 transcript 补齐 DTO，包含内容类型、目标 Hook 节点、关联等级、适配器版本、可见内容和原始 JSONL 证据。前端在 Hook 行为节点中分别展示 Hook 骨架、JSONL 内容和缺失状态，不以 JSONL 替代 Hook 身份或以 Hook 原文冒充 JSONL。
+- S2 的版本化合成契约样本位于 `prd_and_design/fixtures/transcripts/codex-2026-09/`。样本只包含虚构 ID、路径和正文；适配器单元测试必须直接读取该契约或使用等价固定 fixture。
+
 ## 测试策略
 
 - JUnit 5 和 Spring Boot Test 覆盖解析、存储、关联和 API。

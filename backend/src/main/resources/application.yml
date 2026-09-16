@@ -42,8 +42,8 @@ analyzer:
       connection-collation: utf8mb4_0900_bin
       session-variables: sql_mode='STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'
   jsonl:
-    enabled: false
-    root: ""
+    enabled: true
+    root: "${user.home}/.codex"
     scan-interval-ms: 10000
     max-line-bytes: 16777216
     batch-size: 200

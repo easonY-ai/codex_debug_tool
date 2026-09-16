@@ -5,6 +5,7 @@ import { useAnalyzerData } from '../data/analyzerData'
 import type { Alignment, AlignmentLevel, Diagnosis, TimelineItem } from '../types'
 import TimelineChart from './TimelineChart.vue'
 import EventInspectorDrawer from './EventInspectorDrawer.vue'
+import { buildAgentTimelineItems, transcriptMappingDescription } from '../data/traceMapper'
 
 const { alignments, diagnoses, timelineItems, turnTimeBreakdown } = useAnalyzerData()
 
@@ -26,6 +27,7 @@ const counterpartItem = computed(() => {
   return timelineItems.find((item) => item.id === counterpartId)
 })
 const jsonlItem = computed(() => selectedItem.value?.layer === 'Agent 行为' ? selectedItem.value : counterpartItem.value?.layer === 'Agent 行为' ? counterpartItem.value : undefined)
+const transcriptEvidence = computed(() => jsonlItem.value?.jsonlEvidence ?? [])
 const otelItem = computed(() => selectedItem.value?.layer === 'OTel 性能' ? selectedItem.value : counterpartItem.value?.layer === 'OTel 性能' ? counterpartItem.value : undefined)
 const parsedFields = computed(() => {
   const raw = jsonlItem.value?.raw ?? {}
@@ -61,11 +63,11 @@ function focusDiagnosis(item: Diagnosis) {
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`
 const breakdownClass: Record<string, string> = { 模型请求: 'model', 工具执行: 'tool', 审批等待: 'approval', 本地处理: 'local', 未归因: 'unknown' }
-onMounted(async()=>{try{const response=await fetch(`/api/sessions/${encodeURIComponent(session.value.turnId)}/analysis`);if(!response.ok)throw new Error(`HTTP ${response.status}`);const body=await response.json();const start=Number(body.session.started_at??0)
-  const agent:TimelineItem[]=body.agentEvents.map((event:any)=>{const raw=JSON.parse(event.raw_json);return{id:`hook-${event.id}`,layer:'Agent 行为',lane:raw.tool_name?'工具':raw.hook_event_name==='UserPromptSubmit'?'用户':'模型',title:raw.hook_event_name,startMs:Math.max(0,Number(event.observed_at)-start),durationMs:0,status:event.parse_status==='NORMALIZED'?'success':'warning',source:'Hook',description:'Codex Hook 原始生命周期事件',input:raw.prompt,output:raw.tool_response?JSON.stringify(raw.tool_response,null,2):undefined,raw}})
-  const performance:TimelineItem[]=body.performanceSpans.map((span:any)=>({id:`otel-${span.id}`,layer:'OTel 性能',lane:span.object_kind?.includes('tool')?'工具 Span':'API / 传输',title:span.object_kind||span.signal_type,startMs:Math.max(0,Number(span.event_time??start)-start),durationMs:Number(span.duration_ms??0),status:'success',source:'OTel Trace',description:'OTLP 原始性能对象',traceId:span.trace_id,raw:JSON.parse(span.raw_json)}))
+onMounted(async()=>{try{const response=await fetch(`/api/sessions/${encodeURIComponent(session.value.turnId)}/analysis`);if(!response.ok)throw new Error(`HTTP ${response.status}`);const body=await response.json();const start=Number(body.session.startedAt??0)
+  const agent:TimelineItem[]=buildAgentTimelineItems(body.agentEvents,body.jsonlSupplements??[],start)
+  const performance:TimelineItem[]=body.performanceSpans.map((span:any)=>({id:`otel-${span.id}`,layer:'OTel 性能',lane:span.objectKind?.includes('tool')?'工具 Span':'API / 传输',title:span.objectKind||span.signalType,startMs:Math.max(0,Number(span.eventTime??start)-start),durationMs:Number(span.durationMs??0),status:'success',source:'OTel Trace',description:'OTLP 原始性能对象',traceId:span.traceId,raw:JSON.parse(span.rawJson)}))
   timelineItems.splice(0,timelineItems.length,...agent,...performance);visibleItems.value=timelineItems.map(item=>item.id);selectedItem.value=timelineItems[0]
-  alignments.splice(0,alignments.length,...body.alignments.map((a:any)=>({id:String(a.id),agentEventId:`hook-${body.agentEvents.find((e:any)=>JSON.parse(e.raw_json).tool_use_id===a.hook_node_id)?.id}`,performanceSpanId:`otel-${a.otel_object_id}`,level:a.level,evidence:a.evidence_json,timeDeltaMs:a.time_delta_ms})))
+  alignments.splice(0,alignments.length,...body.alignments.map((a:any)=>({id:String(a.id),agentEventId:`hook-${body.agentEvents.find((e:any)=>JSON.parse(e.rawJson).tool_use_id===a.hookNodeId)?.id}`,performanceSpanId:`otel-${a.otelObjectId}`,level:a.level,evidence:a.evidenceJson,timeDeltaMs:a.timeDeltaMs})))
   diagnoses.splice(0,diagnoses.length,...body.diagnoses.map((d:any)=>({id:d.id,severity:d.severity,title:d.title,detail:d.detail,impact:`${(Number(d.impactMs)/1000).toFixed(1)}s`,confidence:d.confidence})))
   turnTimeBreakdown.splice(0,turnTimeBreakdown.length,{category:'模型请求',durationMs:Number(body.aggregates.modelRequestMs),source:'OTel'},{category:'工具执行',durationMs:Number(body.aggregates.toolMs),source:body.performanceSpans.length?'OTel':'JSONL 估算'},{category:'审批等待',durationMs:Number(body.aggregates.approvalMs),source:'OTel'},{category:'本地处理',durationMs:Number(body.aggregates.localMs),source:'JSONL 估算'},{category:'未归因',durationMs:Number(body.aggregates.unattributedMs),source:'差额'})
 }catch{timelineItems.splice(0);alignments.splice(0);diagnoses.splice(0)}})
@@ -158,15 +160,22 @@ onMounted(async()=>{try{const response=await fetch(`/api/sessions/${encodeURICom
             <el-tab-pane label="详情" name="详情">
               <p class="node-description">{{ selectedItem.description }}</p>
               <dl class="detail-grid"><dt>开始</dt><dd>+{{ seconds(selectedItem.startMs) }}</dd><dt>结束</dt><dd>+{{ seconds(selectedItem.startMs + selectedItem.durationMs) }}</dd><dt>泳道</dt><dd>{{ selectedItem.lane }}</dd><dt>状态</dt><dd>已完成</dd></dl>
-              <div v-if="selectedRelations.length" class="relation-summary"><el-icon><Connection /></el-icon><span>找到 {{ selectedRelations.length }} 条跨源关系</span><button @click="activeTab = '关联证据'">查看证据</button></div>
+              <div v-if="selectedRelations.length || transcriptEvidence.length" class="relation-summary"><el-icon><Connection /></el-icon><span>找到 {{ selectedRelations.length + transcriptEvidence.length }} 条跨源关系</span><button @click="activeTab = '关联证据'">查看证据</button></div>
             </el-tab-pane>
             <el-tab-pane label="关联证据" name="关联证据">
+              <div v-for="evidence in transcriptEvidence" :key="`transcript-${evidence.id}`" class="evidence-card">
+                <div><el-tag :type="evidence.mappingLevel === 'EXACT' ? 'success' : 'primary'">{{ evidence.mappingLevel === 'EXACT' ? '精确内容关联' : '区间内容关联' }}</el-tag><span>适配器 {{ evidence.adapterVersion }}</span></div>
+                <p>{{ transcriptMappingDescription(evidence) }}</p>
+                <div v-if="evidence.mappingLevel === 'EXACT'" class="parsed-fields"><dl><dt>Hook tool_use_id</dt><dd>{{ evidence.hookNodeId }}</dd><dt>JSONL call_id</dt><dd>{{ evidence.callId }}</dd></dl></div>
+              </div>
               <div v-if="selectedAlignment" class="evidence-card"><div><el-tag :type="levelMeta[selectedAlignment.level].type">{{ levelMeta[selectedAlignment.level].label }}关联</el-tag><span v-if="selectedAlignment.timeDeltaMs != null">时间差 {{ selectedAlignment.timeDeltaMs }}ms</span></div><p>{{ selectedAlignment.evidence }}</p><div v-if="selectedAlignment.level === 'INFERRED'" class="evidence-warning"><el-icon><WarningFilled /></el-icon>这是算法推测，不代表两个节点必然是同一调用。</div></div>
               <div v-else-if="selectedRelations.length"><button v-for="item in selectedRelations" :key="item.id" class="mini-relation" @click="selectAlignment(item)"><el-tag :type="levelMeta[item.level].type" size="small">{{ levelMeta[item.level].label }}</el-tag><span>{{ item.evidence }}</span></button></div>
-              <el-empty v-else description="该节点没有跨源关联" :image-size="58" />
+              <el-empty v-if="!selectedRelations.length && !transcriptEvidence.length" description="该节点没有跨源关联" :image-size="58" />
             </el-tab-pane>
             <el-tab-pane label="原始数据" name="原始数据">
-              <div v-if="jsonlItem" class="raw-source-card jsonl-source"><header><span>JSONL 原文</span><small>{{ jsonlItem.title }}</small></header><pre class="raw-view">{{ JSON.stringify(jsonlItem.raw) }}</pre></div>
+              <div v-if="jsonlItem" class="raw-source-card"><header><span>Hook 原始证据</span><small>{{ jsonlItem.title }}</small></header><pre class="raw-view">{{ JSON.stringify(jsonlItem.raw, null, 2) }}</pre></div>
+              <div v-for="evidence in jsonlItem?.jsonlEvidence" :key="evidence.id" class="raw-source-card jsonl-source"><header><span>JSONL 原文</span><small>{{ evidence.contentKind }} · {{ evidence.mappingLevel }} · {{ evidence.adapterVersion }}</small></header><pre class="raw-view">{{ JSON.stringify(evidence.raw, null, 2) }}</pre></div>
+              <div v-if="jsonlItem && !jsonlItem.jsonlEvidence?.length" class="raw-missing">该 Hook 节点的 JSONL 内容尚未补齐。</div>
               <div v-if="parsedFields.length" class="parsed-fields"><b>解析字段</b><dl><template v-for="field in parsedFields" :key="String(field[0])"><dt>{{ field[0] }}</dt><dd>{{ field[1] }}</dd></template></dl></div>
               <div v-if="otelItem" class="raw-source-card otel-source"><header><span>对应 OTel</span><small>{{ selectedRelations[0] ? levelMeta[selectedRelations[0].level].label + '关联' : '' }}</small></header><pre class="raw-view">{{ JSON.stringify(otelItem.raw, null, 2) }}</pre></div>
               <div v-else-if="jsonlItem" class="raw-missing">该 JSONL 事件没有找到对应的 OTel Span。</div>
