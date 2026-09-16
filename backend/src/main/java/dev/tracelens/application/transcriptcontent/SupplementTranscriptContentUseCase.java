@@ -78,6 +78,7 @@ public class SupplementTranscriptContentUseCase {
         if (!transcriptSourceGateway.enabled()) {
             return 0;
         }
+        // 启动一次文件遍历，并且注册文件系统监听器，后续通过watchEvents方法增量触发扫描，避免频繁轮询。
         transcriptSourceGateway.refresh();
         List<TranscriptSessionCandidate> candidates =
                 hookTranscriptTargetRepository.findSessionsWithTranscript();

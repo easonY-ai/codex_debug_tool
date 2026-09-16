@@ -83,10 +83,13 @@ public class JsonlScanner implements AutoCloseable {
     public synchronized ScanResult scan() {
         if (!properties.enabled()) throw new IllegalStateException("INGESTION_DISABLED");
 
-        // 初始化本轮扫描状态；数组用于在文件遍历回调中累计结果。
+        // 单元素数组允许文件遍历回调更新本轮扫描的累计结果。
         lastStartedAt = System.currentTimeMillis();
+        // 本轮成功写入数据库的原始 JSONL 记录总数。
         long[] inserted = {0};
+        // 本轮发现并尝试扫描的普通 JSONL 文件总数。
         int[] files = {0};
+        // 本轮扫描失败或无法访问的文件总数。
         int[] failed = {0};
         lastError = null;
         try {
@@ -100,6 +103,7 @@ public class JsonlScanner implements AutoCloseable {
             // 遍历同时注册目录监听；只把普通 JSONL 文件交给单文件增量采集逻辑。
             Files.walkFileTree(sessions, new SimpleFileVisitor<>() {
                 @Override public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    // 给目录注册监听器，后续通过watchEvents方法通过 WatchService增量触发扫描，避免频繁轮询。
                     register(dir);
                     return FileVisitResult.CONTINUE;
                 }
