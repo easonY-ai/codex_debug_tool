@@ -115,8 +115,8 @@ npm run dev -- --port 4173
 
 | 编号 | 范围 | 关键预期 | 状态 |
 | --- | --- | --- | --- |
-| IT-HOOK-TRACE-002 | transcript 内容补齐 | session_meta 匹配后补齐用户、工具和最终内容 | 待 S1 验收 |
-| IT-HOOK-TRACE-003 | OTel 工具性能 | 共享已验证 ID 时为 EXACT，耗时摘要守恒 | 待 S2 验收 |
+| IT-HOOK-TRACE-002 | transcript 内容补齐 | session_meta 匹配后补齐用户、工具和最终内容 | 待 S1.1 完成后进入 S2 验收 |
+| IT-HOOK-TRACE-003 | OTel 工具性能 | 共享已验证 ID 时为 EXACT，耗时摘要守恒 | 待 S2 验收且 S3.1 完成 |
 | IT-HOOK-TRACE-004 | 实时 SSE | 运行中转完成，节点可检查 | 待 S3 验收 |
 | IT-HOOK-TRACE-005 | 重复与乱序 | 重复 delivery 去重，Post 先到可补齐，终态不回退 | 待 S4 验收 |
 | IT-HOOK-TRACE-006 | 无效耗时 | 反向/负耗时不进入统计 | 待 S4 验收 |
@@ -140,7 +140,8 @@ npm run dev -- --port 4173
 | 2026-09-15 | S1 代码阅读 bugfix：原始 Hook 主键回填 | Codex | 自动验证通过 | 实现错误，不改变需求或技术方案：MyBatis 使用 MySQL 生成键回填，移除插入后按 `deliveryId` 查询 ID 的额外往返；新增真实 MySQL 集成测试，后端全量 28 项测试通过 |
 | 2026-09-15 | IT-HOOK-TRACE-001 步骤 1–10 | 用户 | 通过 | 用户已完成全部手工步骤和代码阅读；代码阅读发现的 OTel 精确关联契约问题已登记为后续 S3.1，不属于 S1 验收范围 |
 | 2026-09-16 | IT-HOOK-TRACE-001 步骤 1–10（Story0 回归） | 用户 | 通过 | 领域化架构升级后重新检查步骤 1–10，通过；该记录是 Story0 对 S1 主链路的人工回归证据 |
+| 2026-09-16 | E1-S1 真实 Codex Hook 主链路 | 用户 | 接受 | `IT-HOOK-TRACE-001` 全部步骤和代码阅读完成，用户明确确认“S1 OK”；Story 结束 |
 
 ## 当前结论
 
-E1-S1 仍是“集成测试中”，不是“开发完成”。`IT-HOOK-TRACE-001` 步骤 1–10 已在 Story0 升级后重新通过；当前先等待用户确认 Story0 完成，再由用户明确接受 S1 Story。接受前，不执行其他用例或后续 Story。
+E1-S1 已完成。Story0 已由用户确认完成，`IT-HOOK-TRACE-001` 步骤 1–10 已在升级后重新通过，且用户已明确接受 S1。当前下一项为 E1-S1.1 本地运行日志；在用户明确启动前，不执行其他用例或后续 Story。
