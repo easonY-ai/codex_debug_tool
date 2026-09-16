@@ -13,6 +13,7 @@
 7. [主链路集成测试](./07-main-flow-acceptance.md)：Hook 采集与 Trace 绘制的集成测试用例、执行顺序和人工验收记录。
 8. [Epic/Story 拆分与进度](./08-epics-and-stories.md)：项目阶段、Epic/Story 范围、状态和人工门禁。
 9. [Hook 采集与 Trace Story 规格](./09-hook-trace-story-spec.md)：当前最高优先级 Story 的接口、数据流、验收标准和代码阅读路线。
+10. [领域化架构升级 Story 规格](./10-domain-architecture-story-spec.md)：Story0 的 DDD 分层、结构化接口、Raw Event 特例和 Story1 回归门禁。
 
 ## 已确认决策
 
@@ -39,4 +40,4 @@
 
 ## 当前里程碑
 
-Hook-first 能力原型 V2 已确认，项目处于“代码开发”阶段。当前 Epic 为 E1 Hook 采集与 Trace 可视化，当前 Story 为 E1-S1 真实 Codex Hook 主链路，状态为“集成测试中（IT-HOOK-TRACE-001）”。本用例必须由用户手工执行并完成代码阅读；未验收前不开始后续 Story 或其他集成用例。详见 Epic/Story 台账、Story 规格和主链路集成测试文档。
+Hook-first 能力原型 V2 已确认，项目处于“代码开发”阶段。当前前置 Epic 为 E0 领域化架构升级，当前 Story 为 E0-S0，状态为“开发中”。S0 完成后必须回归 E1-S1 的 `IT-HOOK-TRACE-001` 步骤 1–10，才继续后续集成测试。详见 Epic/Story 台账、Story 规格和主链路集成测试文档。

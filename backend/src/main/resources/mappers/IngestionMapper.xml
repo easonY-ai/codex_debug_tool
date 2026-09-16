@@ -64,67 +64,36 @@
   <select id="hookEventById" resultType="dev.tracelens.persistence.RawHookEvent">
     SELECT * FROM raw_hook_event WHERE id=#{id}
   </select>
-  <insert id="upsertHookSession">
-    <!-- 重复或乱序事件不能把终态倒退为运行态；last_observed_at 只允许单调前进。 -->
+  <insert id="insertHookSession">
     INSERT INTO hook_session(session_id, transcript_path, started_at, ended_at, state, last_observed_at, version)
-    VALUES(#{sessionId}, #{transcriptPath},
-      CASE WHEN #{eventName}='SessionStart' THEN #{observedAt} END,
-      CASE WHEN #{eventName}='SessionEnd' THEN #{observedAt} END,
-      CASE WHEN #{eventName}='SessionEnd' THEN 'COMPLETED' WHEN #{eventName}='SessionStart' THEN 'RUNNING' ELSE 'UNKNOWN' END,
-      #{observedAt}, 1)
-    AS incoming
-    ON DUPLICATE KEY UPDATE
-      transcript_path=COALESCE(hook_session.transcript_path, incoming.transcript_path),
-      started_at=COALESCE(hook_session.started_at, incoming.started_at),
-      ended_at=COALESCE(hook_session.ended_at, incoming.ended_at),
-      state=CASE WHEN hook_session.state IN ('COMPLETED','INTERRUPTED') THEN hook_session.state
-                 WHEN incoming.state='COMPLETED' THEN incoming.state
-                 WHEN hook_session.state='RUNNING' THEN hook_session.state ELSE incoming.state END,
-      last_observed_at=GREATEST(hook_session.last_observed_at, incoming.last_observed_at), version=hook_session.version+1
+    VALUES(#{sessionId}, #{transcriptPath}, #{startedAt}, #{endedAt}, #{state}, #{lastObservedAt}, 1)
   </insert>
-  <insert id="upsertHookTurn">
-    <!-- (session_id, turn_id) 是 Turn 业务键；终态一经得到即保持，保证重复投递幂等。 -->
+  <update id="updateHookSession">
+    UPDATE hook_session SET transcript_path=#{transcriptPath}, started_at=#{startedAt}, ended_at=#{endedAt},
+      state=#{state}, last_observed_at=#{lastObservedAt}, version=version+1
+    WHERE session_id_sha256=UNHEX(SHA2(#{sessionId}, 256)) AND session_id=#{sessionId}
+  </update>
+  <insert id="insertHookTurn">
     INSERT INTO hook_turn(session_id, turn_id, started_at, ended_at, state, version)
-    VALUES(#{sessionId}, #{turnId},
-      CASE WHEN #{eventName}='UserPromptSubmit' THEN #{observedAt} END,
-      CASE WHEN #{eventName} IN ('Stop','Interrupt') THEN #{observedAt} END,
-      CASE WHEN #{eventName}='Stop' THEN 'COMPLETED' WHEN #{eventName}='Interrupt' THEN 'INTERRUPTED'
-           WHEN #{eventName}='UserPromptSubmit' THEN 'RUNNING' ELSE 'UNKNOWN' END, 1)
-    AS incoming
-    ON DUPLICATE KEY UPDATE
-      started_at=COALESCE(hook_turn.started_at, incoming.started_at),
-      ended_at=COALESCE(hook_turn.ended_at, incoming.ended_at),
-      state=CASE WHEN hook_turn.state IN ('COMPLETED','INTERRUPTED') THEN hook_turn.state
-                 WHEN incoming.state IN ('COMPLETED','INTERRUPTED') THEN incoming.state
-                 WHEN hook_turn.state='RUNNING' THEN hook_turn.state ELSE incoming.state END,
-      version=hook_turn.version+1
+    VALUES(#{sessionId}, #{turnId}, #{startedAt}, #{endedAt}, #{state}, 1)
   </insert>
-  <insert id="upsertHookTool">
-    <!-- Pre/Post 可乱序到达；只有两个时间都存在且 post >= pre 时才生成有效耗时。 -->
+  <update id="updateHookTurn">
+    UPDATE hook_turn SET started_at=#{startedAt}, ended_at=#{endedAt}, state=#{state}, version=version+1
+    WHERE session_id_sha256=UNHEX(SHA2(#{sessionId}, 256)) AND session_id=#{sessionId} AND turn_id=#{turnId}
+  </update>
+  <insert id="insertHookTool">
     INSERT INTO hook_tool_call(session_id, turn_id, tool_use_id, tool_name, pre_observed_at, post_observed_at,
       state, estimated_duration_ms, duration_valid, version)
-    VALUES(#{sessionId}, #{turnId}, #{toolUseId}, #{toolName},
-      CASE WHEN #{eventName}='PreToolUse' THEN #{observedAt} END,
-      CASE WHEN #{eventName}='PostToolUse' THEN #{observedAt} END,
-      CASE WHEN #{eventName}='PreToolUse' THEN 'RUNNING' ELSE #{terminalState} END, NULL, 0, 1)
-    AS incoming
-    ON DUPLICATE KEY UPDATE
-      tool_name=COALESCE(hook_tool_call.tool_name, incoming.tool_name),
-      pre_observed_at=COALESCE(hook_tool_call.pre_observed_at, incoming.pre_observed_at),
-      post_observed_at=COALESCE(hook_tool_call.post_observed_at, incoming.post_observed_at),
-      state=CASE WHEN hook_tool_call.state IN ('SUCCESS','FAILED','INTERRUPTED') THEN hook_tool_call.state
-                 WHEN incoming.state IN ('SUCCESS','FAILED','INTERRUPTED') THEN incoming.state
-                 WHEN hook_tool_call.state='RUNNING' THEN hook_tool_call.state ELSE incoming.state END,
-      estimated_duration_ms=CASE
-        WHEN COALESCE(hook_tool_call.post_observed_at, incoming.post_observed_at) &gt;= COALESCE(hook_tool_call.pre_observed_at, incoming.pre_observed_at)
-        THEN COALESCE(hook_tool_call.post_observed_at, incoming.post_observed_at)-COALESCE(hook_tool_call.pre_observed_at, incoming.pre_observed_at) END,
-      duration_valid=CASE
-        WHEN COALESCE(hook_tool_call.pre_observed_at, incoming.pre_observed_at) IS NOT NULL
-         AND COALESCE(hook_tool_call.post_observed_at, incoming.post_observed_at) IS NOT NULL
-         AND COALESCE(hook_tool_call.post_observed_at, incoming.post_observed_at) &gt;= COALESCE(hook_tool_call.pre_observed_at, incoming.pre_observed_at)
-        THEN 1 ELSE 0 END,
-      version=hook_tool_call.version+1
+    VALUES(#{sessionId}, #{turnId}, #{toolUseId}, #{toolName}, #{preObservedAt}, #{postObservedAt}, #{state},
+      #{estimatedDurationMs}, #{durationValid}, 1)
   </insert>
+  <update id="updateHookTool">
+    UPDATE hook_tool_call SET tool_name=#{toolName}, pre_observed_at=#{preObservedAt}, post_observed_at=#{postObservedAt},
+      state=#{state}, estimated_duration_ms=#{estimatedDurationMs}, duration_valid=#{durationValid}, version=version+1
+    WHERE session_id_sha256=UNHEX(SHA2(#{sessionId}, 256)) AND session_id=#{sessionId}
+      AND turn_id_sha256=UNHEX(SHA2(#{turnId}, 256)) AND turn_id=#{turnId}
+      AND tool_use_id_sha256=UNHEX(SHA2(#{toolUseId}, 256)) AND tool_use_id=#{toolUseId}
+  </update>
   <update id="updateHookParseStatus">
     UPDATE raw_hook_event SET parse_status=#{status}, error_code=#{errorCode} WHERE id=#{id}
   </update>

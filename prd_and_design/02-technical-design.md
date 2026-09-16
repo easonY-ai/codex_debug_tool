@@ -4,6 +4,10 @@
 
 产品是本地 Web 应用。Java 进程负责数据采集、解析、存储和查询；Vue 页面负责可视化分析。发布时前端静态资源嵌入 Spring Boot JAR，开发时前后端独立启动。
 
+## Story0 持久化端口边界
+
+Story0 的 Repository 以聚合或独立生命周期实体命名和拆分，不使用笼统的 `Store`。`RawHookEvent` 是可追溯原始证据，`NormalizationJob` 是异步调度实体，Session、Turn、Tool 是行为骨架聚合；它们分别由 `RawHookEventRepository`、`NormalizationJobRepository`、`SessionRepository`、`TurnRepository`、`ToolRepository` 表达。虽然 Hook 接收用例在同一事务内写入原始事件和任务，但该事务编排属于 Application，不改变两个 Repository 的职责边界。
+
 ## 仓库结构与实现边界
 
 - `prd_and_design/prototype-v1` 保存已确认的 H5 设计基线，只用于还原需求、视觉和交互，不作为持续开发目录。
@@ -190,6 +194,16 @@ aggregates
 ```
 
 所有时间使用 Unix 毫秒值，并同时返回数据来源、精度和关联等级。
+
+## Story0 领域化架构约束
+
+- 后端按问题子域组织 `interfaces`、`application`、`domain`、`infrastructure` 四层；每层内部继续按 `hook-ingestion`、`hook-normalization`、`trace-query` 等业务子域拆解，不按技术类型集中目录。
+- `interfaces` 是入站适配层：HTTP Controller、定时调度器和消息入口只转换协议并调用 Application 用例。`HookNormalizationScheduler` 只负责 `@Scheduled` 调度和调用 `NormalizeHookEventUseCase`，不解析事件、不推进状态、不直接访问 Mapper。
+- `application` 编排用例、事务和端口；`domain` 持有聚合根、实体、值对象和领域规则；`infrastructure` 提供 Spring、Jackson、MyBatis 和数据库适配实现。
+- REST 输入输出必须使用明确 DTO。普通业务接口不得以 `JsonNode`、`Map`、`Object` 或裸 `byte[]` 作为业务输入输出。
+- Raw Event 是原始证据保留的特例：接收边界可以接收并保存专门的 Raw Event 类型；已知事件在归一化阶段转换为结构化领域事件，未知事件显式标记 UNKNOWN 并保留原始证据。
+- 简单标识符和时间值第一轮不机械封装为 Value Object；只有存在稳定业务不变量或跨子域行为时才引入。
+- Mapper 仅执行简单读写和数据库约束配合；状态推进、跨实体规则、跨源关联、证据和指标计算由 Java Application/Domain 层实现。
 
 ## 正式实施契约
 

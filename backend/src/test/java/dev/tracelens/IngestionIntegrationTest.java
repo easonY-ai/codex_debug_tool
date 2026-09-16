@@ -2,7 +2,7 @@ package dev.tracelens;
 
 import dev.tracelens.config.JsonlProperties;
 import dev.tracelens.ingestion.JsonlScanner;
-import dev.tracelens.ingestion.HookNormalizationWorker;
+import dev.tracelens.application.hooknormalization.NormalizeHookEventUseCase;
 import dev.tracelens.ingestion.TranscriptWorker;
 import dev.tracelens.ingestion.RawLineParser;
 import dev.tracelens.persistence.IngestionMapper;
@@ -39,10 +39,10 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
     @Autowired RawLineParser parser;
     @Autowired JsonlProperties properties;
     @Autowired TransactionTemplate transaction;
+    @Autowired NormalizeHookEventUseCase hookWorker;
     @Autowired DataSource database;
     @Autowired MockMvc mvc;
     @Autowired TranscriptWorker transcriptWorker;
-    HookNormalizationWorker hookWorker;
 
     private static Path temporaryRoot() {
         try { return Files.createTempDirectory("trace-lens-synthetic-"); }
@@ -76,7 +76,6 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
             }
         }
         Files.createDirectories(SESSIONS);
-        hookWorker = new HookNormalizationWorker(mapper, new com.fasterxml.jackson.databind.ObjectMapper(), transaction);
     }
 
     @Test void appendPartialUtf8AndRestartAreIdempotent() throws Exception {

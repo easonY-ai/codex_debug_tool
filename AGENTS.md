@@ -19,6 +19,25 @@
     - 先定接口、写用例，然后再开始开发。在用例编写过程中，反思接口定义是否合理。
     - 所有代码单元必须经过单元测试，才算交付。
 
+## DDD 领域化架构规范（Story0 草案）
+
+- 后端采用按问题子域拆解的 DDD 结构；`interfaces`、`application`、`domain`、`infrastructure` 是依赖边界，不是按 `entity`、`service`、`enum`、`mapper` 等技术类型集中分目录。
+- 每个分层内部继续按 `hook-ingestion`、`hook-normalization`、`trace-query` 等问题子域组织，目录和类型名称优先使用业务语言。
+- 所有类型、方法、字段、参数和目录命名都必须优先表达业务含义、业务边界和职责；不得因技术便利使用含义模糊的名称。
+- `interfaces` 只负责 HTTP、定时调度等入站适配；`application` 负责用例编排、事务和端口调用；`domain` 负责聚合、实体、值对象和领域规则；`infrastructure` 负责框架、序列化和持久化适配。
+- 领域服务用于封装重要且可复用的业务规则与状态演进。例如 Hook 事件类型如何推进 Session、Turn、Tool 生命周期，必须由对应领域服务和聚合模型表达；领域服务不处理 HTTP、框架或具体持久化实现。
+- 应用服务用于实现具体用户用例：定义事务边界、调用并编排多个领域服务及端口、处理用例级错误和结果；不得把应由单一领域对象或领域服务负责的业务规则下沉到 Application。
+- 领域层不得依赖 Spring、MyBatis、Jackson、HTTP 或数据库类型；依赖通过端口/接口反转。
+- REST 输入输出必须使用明确的业务 DTO；普通业务接口不得使用 `JsonNode`、`Map`、`Object` 或裸 `byte[]` 表示业务数据。
+- Raw Event 是保留未知/未支持输入的特殊用例，允许通过专门的原始证据类型保留完整事件；它不构成通用 JSON 接口，也不能替代已知事件的结构化模型。
+- 聚合根、Entity、Value Object 和领域服务必须以业务概念命名，并注释其含义、职责、不变量和对外接口；仅在字段具有稳定业务行为时引入 Value Object，不为简单 ID 或时间值机械包装。
+- 持久化端口统一命名为 `*Repository`，并按聚合根或独立生命周期实体拆分；不得以 `Store`、`DataService` 等技术中性名称掩盖领域职责。
+- 一个 Repository 只负责一个聚合或独立实体的一致性边界。原始证据（如 `RawHookEvent`）、异步任务（如 `NormalizationJob`）和业务聚合（如 Session/Turn/Tool）即使同处一条流程，也必须使用不同 Repository；Application Use Case 负责组合它们并定义事务。
+- 同一问题子域内、围绕任一单一聚合的“读取当前状态 → 应用领域规则 → 保存新状态”是通用的聚合状态演进模式，必须封装为该聚合的领域服务；Application 不得直接出现 `Repository.find → aggregate.apply → Repository.save` 三步。Application 只负责编排跨问题子域或多个领域服务的用例流程。领域服务可依赖定义在 Domain 的 Repository 端口，但不得依赖 Spring、MyBatis 或具体持久化实现。
+- 注入或保存 Repository 的字段、构造参数和局部变量必须以完整 Repository 名称命名（如 `rawHookEventRepository`），不得以复数领域对象名（如 `rawHookEvents`）代替，以便从调用点直接识别持久化边界。
+- Mapper 只负责简单查询、插入、更新和数据库约束配合；状态迁移、跨实体规则、关联等级、证据构建和业务计算必须在 Java 应用/领域层完成。
+- 任何时候不得以牺牲可读性换取代码短小。方法、条件分支、构造参数和复杂表达式应按职责换行并保持可审阅；禁止将多步逻辑、`if`/`try-catch` 或多个语句压缩到单行。需要复用时优先提取有业务语义的私有方法，而不是堆叠嵌套或内联表达式。
+
 ## 日志
 - 日志记录到***~/.my_logs/{本项名称}***目录下，区分 frontend, backend, cli 目录存储
 - 日志按日归档，最多存储7天

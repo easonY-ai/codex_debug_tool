@@ -2,6 +2,9 @@ package dev.tracelens.persistence;
 
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import dev.tracelens.domain.hooknormalization.SessionLifecycle;
+import dev.tracelens.domain.hooknormalization.ToolLifecycle;
+import dev.tracelens.domain.hooknormalization.TurnLifecycle;
 import java.util.List;
 
 @Mapper
@@ -25,14 +28,12 @@ public interface IngestionMapper {
     void markNormalizationCompleted(@Param("id") long id, @Param("now") long now);
     void markNormalizationFailed(@Param("id") long id, @Param("now") long now, @Param("errorCode") String errorCode);
     RawHookEvent hookEventById(long id);
-    void upsertHookSession(@Param("sessionId") String sessionId, @Param("transcriptPath") String transcriptPath,
-                           @Param("observedAt") long observedAt, @Param("eventName") String eventName);
-    void upsertHookTurn(@Param("sessionId") String sessionId, @Param("turnId") String turnId,
-                        @Param("observedAt") long observedAt, @Param("eventName") String eventName);
-    void upsertHookTool(@Param("sessionId") String sessionId, @Param("turnId") String turnId,
-                        @Param("toolUseId") String toolUseId, @Param("toolName") String toolName,
-                        @Param("observedAt") long observedAt, @Param("eventName") String eventName,
-                        @Param("terminalState") String terminalState);
+    void insertHookSession(SessionLifecycle session);
+    void updateHookSession(SessionLifecycle session);
+    void insertHookTurn(TurnLifecycle turn);
+    void updateHookTurn(TurnLifecycle turn);
+    void insertHookTool(ToolLifecycle tool);
+    void updateHookTool(ToolLifecycle tool);
     void updateHookParseStatus(@Param("id") long id, @Param("status") String status, @Param("errorCode") String errorCode);
     java.util.Map<String, Object> hookSession(String sessionId);
     java.util.Map<String, Object> hookTurn(@Param("sessionId") String sessionId, @Param("turnId") String turnId);
