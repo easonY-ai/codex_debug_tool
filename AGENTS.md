@@ -42,6 +42,7 @@
 - 日志记录到***~/.my_logs/{本项名称}***目录下，区分 frontend, backend, cli 目录存储
 - 日志按日归档，最多存储7天
 - 目前前端不写日志，只有后端和CLI才写日志
+- 所有具备业务职责的公开入口都必须打印“调用入参摘要、返回值摘要、耗时、结果/异常类别”。业务公开入口包括 Controller HTTP 接口、Scheduler 调度入口、Application Use Case 公开方法和 Domain Service 的公开业务能力；不包括构造器、getter/setter、record accessor、Repository、Mapper 与实体内部状态方法。日志必须使用字段白名单、稳定 Hash 或原文摘要，禁止直接打印敏感入参、返回内容或异常原文。
 
 ## 必须读取的项目上下文
 

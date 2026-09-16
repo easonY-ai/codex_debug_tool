@@ -1,6 +1,7 @@
 package dev.tracelens.ingestion;
 
 import dev.tracelens.config.JsonlProperties;
+import dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations;
 import dev.tracelens.persistence.IngestionMapper;
 import dev.tracelens.persistence.RawRecord;
 import dev.tracelens.persistence.SourceFile;
@@ -25,6 +26,7 @@ import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardWatchEventKinds.*;
 
 @Service
+@AuditedBusinessOperations
 public class JsonlScanner implements AutoCloseable {
     public record ScanResult(long startedAt, long completedAt, int files, long insertedRecords, int failedFiles) { }
     public record ScannerState(boolean enabled, String root, Long lastStartedAt, Long lastCompletedAt,

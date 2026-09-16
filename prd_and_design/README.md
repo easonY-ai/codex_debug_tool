@@ -14,6 +14,7 @@
 8. [Epic/Story 拆分与进度](./08-epics-and-stories.md)：项目阶段、Epic/Story 范围、状态和人工门禁。
 9. [Hook 采集与 Trace Story 规格](./09-hook-trace-story-spec.md)：当前最高优先级 Story 的接口、数据流、验收标准和代码阅读路线。
 10. [领域化架构升级 Story 规格](./10-domain-architecture-story-spec.md)：Story0 的 DDD 分层、结构化接口、Raw Event 特例和 Story1 回归门禁。
+11. [本地运行日志 Story 规格](./11-local-runtime-logging-story-spec.md)：S1.1 的 CLI/后端日志边界、脱敏、轮转和验收用例。
 
 ## 已确认决策
 
@@ -40,4 +41,4 @@
 
 ## 当前里程碑
 
-Hook-first 能力原型 V2 已确认，项目处于“代码开发”阶段。E0-S0 领域化架构升级和 E1-S1 真实 Codex Hook 主链路均已完成；`IT-HOOK-TRACE-001` 步骤 1–10 已完成升级后人工回归，且用户已接受 S1。当前任务为待启动的 E1-S1.1 本地运行日志，必须等待用户明确启动指令。详见 Epic/Story 台账、Story 规格和主链路集成测试文档。
+Hook-first 能力原型 V2 已确认，项目处于“代码开发”阶段。E0-S0 领域化架构升级、E1-S1 真实 Codex Hook 主链路和 E1-S1.1 本地运行日志均已完成；`IT-HOOK-TRACE-001` 步骤 1–10、S1.1 自动回归和 `IT-LOG-001` 人工验收均已通过，用户已明确接受 S1 与 S1.1。当前没有进行中的 Story，等待用户明确启动 E1-S2 transcript 内容补齐。详见 Epic/Story 台账、Story 规格和主链路集成测试文档。

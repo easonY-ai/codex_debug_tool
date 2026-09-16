@@ -1,7 +1,10 @@
 package dev.tracelens.application.hookingestion;
 
+import dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import dev.tracelens.application.hooknormalization.NormalizationJobRepository;
 
 import java.util.ArrayList;
@@ -13,7 +16,9 @@ import java.util.List;
  * and operational counters; it deliberately does not interpret the Hook event itself.
  */
 @Service
+@AuditedBusinessOperations
 public class AcceptHookEventUseCase {
+    private static final Logger logger = LoggerFactory.getLogger(AcceptHookEventUseCase.class);
     public record Result(String deliveryId, String status) { }
     public record Status(long checkedAt, Long lastSuccessAt, long requests, long accepted, long duplicates,
                          long clientErrors, long serverErrors, long pendingJobs,
@@ -49,9 +54,12 @@ public class AcceptHookEventUseCase {
                 lastSuccessAt = receivedAt; recordDuration(started);
             }
             if ("ACCEPTED".equals(result.status())) notifier.accepted(deliveryId, observedAt);
+            logger.info("hook_delivery_{} outcome={}",
+                    result.status().toLowerCase(), result.status().toLowerCase());
             return result;
         } catch (RuntimeException failure) {
             synchronized (this) { serverErrors++; recordDuration(started); }
+            logger.warn("hook_delivery_failed outcome=server_error");
             throw failure;
         }
     }

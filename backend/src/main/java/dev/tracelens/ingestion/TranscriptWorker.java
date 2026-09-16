@@ -3,6 +3,7 @@ package dev.tracelens.ingestion;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.tracelens.config.JsonlProperties;
+import dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations;
 import dev.tracelens.persistence.IngestionMapper;
 import dev.tracelens.persistence.RawRecord;
 import dev.tracelens.persistence.SourceFile;
@@ -16,6 +17,7 @@ import java.security.MessageDigest;
 import java.util.*;
 
 @Service
+@AuditedBusinessOperations
 public class TranscriptWorker {
     static final String ADAPTER = "codex-2026-09";
     private static final Set<String> KNOWN = Set.of("session_meta", "turn_context", "event_msg", "response_item", "compacted");

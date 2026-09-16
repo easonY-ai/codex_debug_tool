@@ -1,5 +1,7 @@
 package dev.tracelens.domain.hooknormalization;
 
+import dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations;
+
 /**
  * Domain service for evolving one Session aggregate from a normalized Hook fact.
  *
@@ -7,6 +9,7 @@ package dev.tracelens.domain.hooknormalization;
  * lifecycle invariants, and persist the resulting snapshot. It does not coordinate Turn, Tool,
  * scheduling, or transaction boundaries.</p>
  */
+@AuditedBusinessOperations
 public class SessionLifecycleService {
     private final SessionRepository sessionRepository;
 

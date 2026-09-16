@@ -278,6 +278,16 @@ aggregates
 - 发布构建先生成前端静态资源，再打入可执行 JAR。
 - 提供单条打包命令，以及 macOS/Linux 启动脚本。
 
+## S1.1 本地运行日志
+
+- CLI 与后端仅记录运行诊断；前端日志不在 S1.1 范围内。
+- 默认根目录为 `~/.my_logs/codex_analyze`，CLI 写入 `cli`，后端写入 `backend`。仅为自动化测试和本机运维允许通过 `TRACE_LENS_LOG_ROOT` 覆盖根目录；该覆盖不应写入已跟踪配置。
+- 两端均按本地自然日轮转，保留当前日及前六个自然日的文件，启动时清理更早文件，最多保留七天。后端滚动归档的 `max-history` 为六个已归档自然日，加上当前文件恰为七天。日志目录或文件不可用时，CLI 仍须退出 0，后端不得因此拒绝正常业务请求。
+- 日志使用固定字段的单行结构化格式。允许记录时间、级别、组件、稳定事件名、结果类别、HTTP 状态、尝试次数和处理时长。
+- 接口诊断日志必须记录经过白名单与脱敏后的入参、返回值：Hook 接口记录 `schemaVersion`、`forwarderVersion`、已知 `hook_event_name`、body 长度、body SHA-256、以及 `session_id`、`turn_id`、`tool_use_id`、`deliveryId` 的稳定 SHA-256 摘要；响应记录 HTTP 状态、业务结果与处理时长。校验失败记录缺失或无效的字段名，不记录字段原值。
+- 不得记录 Hook stdin 或 HTTP body 原文、用户问题、工具参数/结果、完整标识符、transcript 路径、认证头、数据库连接信息、异常堆栈中的原始输入或其他凭据。
+- CLI 在 forwarder 投递完成或输入无效时记录脱敏结果类别；后端在 Hook 接收结果与归一化任务失败时记录脱敏诊断。业务日志由各子域入口产生，不能为了日志将领域规则迁回 Controller、Scheduler 或 Mapper。
+
 ## 测试策略
 
 - JUnit 5 和 Spring Boot Test 覆盖解析、存储、关联和 API。

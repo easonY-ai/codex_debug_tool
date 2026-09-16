@@ -2,6 +2,7 @@ package dev.tracelens.ingestion;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations;
 import dev.tracelens.persistence.IngestionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -14,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Service
+@AuditedBusinessOperations
 public class OtelIngestionService {
     private final ObjectMapper json;
     private final IngestionMapper mapper;

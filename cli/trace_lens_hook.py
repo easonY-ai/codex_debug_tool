@@ -9,6 +9,8 @@ import time
 import uuid
 from http.client import HTTPConnection
 
+import runtime_logging
+
 VERSION = "0.1.0"
 # Hook 进程直接处于 Codex 的交互路径中。1 MiB 足以容纳单个事件，同时为
 # 异常大的 stdin 设置明确的内存和后端请求上限；后端采用相同限制，避免两端口径不一致。
@@ -55,6 +57,7 @@ def deliver(body: bytes, connection_factory=HTTPConnection, sleeper=time.sleep) 
 
 
 def main() -> int:
+    logger = runtime_logging.create_logger()
     try:
         # Codex 触发 Hook 时会启动本脚本，并将事件 JSON 写入该进程的标准输入；
         # 交互形式类似 `echo '{"event":"..."}' | python trace_lens_hook.py`，而不是
@@ -63,10 +66,12 @@ def main() -> int:
         # 多读 1 字节用于区分“刚好 1 MiB（允许）”与“超过 1 MiB（拒绝）”，且不会将超大输入全部读入内存。
         raw = sys.stdin.buffer.read(MAX_STDIN_BYTES + 1)
         result = deliver(envelope(raw))
+        runtime_logging.record(logger, "hook_forward_completed", result)
         if result != "accepted":
             print(f"trace-lens hook: {result}", file=sys.stderr)
     except Exception as failure:
         category = "invalid_input" if isinstance(failure, (ValueError, json.JSONDecodeError)) else "internal_error"
+        runtime_logging.record(logger, "hook_forward_rejected_input", category, errorCategory=category)
         print(f"trace-lens hook: {category}", file=sys.stderr)
     # Hook 采集失败不能影响 Codex 的原命令执行；诊断信息仅写 stderr，始终正常退出。
     return 0

@@ -4,6 +4,19 @@ server:
   error:
     include-message: never
     include-stacktrace: never
+logging:
+  file:
+    name: ${TRACE_LENS_LOG_ROOT:${user.home}/.my_logs/codex_analyze}/backend/trace-lens-backend.log
+  logback:
+    rollingpolicy:
+      file-name-pattern: ${TRACE_LENS_LOG_ROOT:${user.home}/.my_logs/codex_analyze}/backend/trace-lens-backend.%d{yyyy-MM-dd}.%i.log.gz
+      max-history: 6
+      clean-history-on-start: true
+  pattern:
+    file: 'timestamp=%d{yyyy-MM-dd''T''HH:mm:ss.SSSXXX} level=%p component=backend event=%msg%n'
+  level:
+    root: WARN
+    dev.tracelens: INFO
 spring:
   application:
     name: trace-lens

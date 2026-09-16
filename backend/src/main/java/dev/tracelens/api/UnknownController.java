@@ -2,6 +2,7 @@ package dev.tracelens.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations;
 import dev.tracelens.persistence.IngestionMapper;
 import dev.tracelens.persistence.RawRecord;
 import org.springframework.http.HttpStatus;
@@ -10,7 +11,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.*;
 
-@RestController @RequestMapping("/api/unknown-fingerprints")
+@RestController @RequestMapping("/api/unknown-fingerprints") @AuditedBusinessOperations
 public class UnknownController {
     private static final Set<String> FIELDS=Set.of("type","timestamp","payloadType","turnId","callId","role","content");
     private final IngestionMapper mapper; private final ObjectMapper json;

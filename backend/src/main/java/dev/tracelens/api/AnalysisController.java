@@ -1,5 +1,6 @@
 package dev.tracelens.api;
 
+import dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations;
 import dev.tracelens.persistence.IngestionMapper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,6 +13,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
+@AuditedBusinessOperations
 public class AnalysisController {
     private final IngestionMapper mapper;
     private final EventStreamService streams;

@@ -1,5 +1,6 @@
 package dev.tracelens.api;
 
+import dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations;
 import dev.tracelens.ingestion.OtelIngestionService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -8,6 +9,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Map;
 
 @RestController
+@AuditedBusinessOperations
 public class OtelController {
     private final OtelIngestionService service;
     public OtelController(OtelIngestionService service) { this.service = service; }

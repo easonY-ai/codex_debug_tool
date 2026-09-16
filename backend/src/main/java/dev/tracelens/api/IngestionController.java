@@ -1,5 +1,6 @@
 package dev.tracelens.api;
 
+import dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations;
 import dev.tracelens.ingestion.JsonlScanner;
 import dev.tracelens.persistence.IngestionMapper;
 import dev.tracelens.persistence.RawRecord;
@@ -14,6 +15,7 @@ import java.util.Set;
 
 @RestController
 @RequestMapping("/api/ingestion")
+@AuditedBusinessOperations
 public class IngestionController {
     public record Status(String status, long checkedAt, JsonlScanner.ScannerState scanner,
                          List<SourceFile> files, long rawRecords, Map<String, String> capabilities) { }

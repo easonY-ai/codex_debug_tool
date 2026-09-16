@@ -5,10 +5,13 @@ import dev.tracelens.domain.hooknormalization.SessionLifecycleService;
 import dev.tracelens.domain.hooknormalization.ToolLifecycleService;
 import dev.tracelens.domain.hooknormalization.TurnLifecycleService;
 import dev.tracelens.application.hookingestion.RawHookEventRepository;
+import dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.util.Set;
@@ -18,7 +21,9 @@ import java.util.Set;
  * all lifecycle state decisions to domain models; neither a scheduler nor SQL owns those rules.
  */
 @Service
+@AuditedBusinessOperations
 public class NormalizeHookEventUseCase {
+    private static final Logger logger = LoggerFactory.getLogger(NormalizeHookEventUseCase.class);
     private static final int MAX_AGGREGATE_CONCURRENCY_ATTEMPTS = 3;
     private static final Set<String> SUPPORTED = Set.of("SessionStart", "SessionEnd", "SubagentStart", "PreToolUse",
             "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "UserPromptSubmit", "SubagentStop", "Stop", "Interrupt");
@@ -65,8 +70,10 @@ public class NormalizeHookEventUseCase {
                     continue;
                 }
                 markFailed(job, "AGGREGATE_CONCURRENCY_RETRY_EXHAUSTED");
+                logger.warn("hook_normalization_failed outcome=retry_exhausted errorCategory=aggregate_concurrency");
             } catch (RuntimeException failure) {
                 markFailed(job, "NORMALIZATION_FAILED");
+                logger.warn("hook_normalization_failed outcome=failed errorCategory=normalization");
             }
             return true;
         }
