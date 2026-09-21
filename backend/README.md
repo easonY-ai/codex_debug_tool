@@ -52,6 +52,18 @@ curl -X POST http://127.0.0.1:8080/api/ingestion/rescan
 curl 'http://127.0.0.1:8080/api/ingestion/records?afterId=0&limit=50'
 ```
 
+## 独立 OTLP 采样
+
+架构调研可使用不连接数据库的本机采样器。它只监听回环地址，将原始 JSON/protobuf、SHA-256、安全请求头和解码结果写入已忽略的 `otel-data/`；不得提交该目录。
+
+```bash
+cd backend
+uv run --project ../cli python scripts/otel_sampler.py --output ../otel-data/codex-sample
+curl http://127.0.0.1:4318/status
+```
+
+Codex 0.154.0 使用 OTLP/HTTP binary。启动另一个 Codex 进程时，可通过命令行临时设置 `otel.exporter`、`otel.trace_exporter` 和 `otel.metrics_exporter`，分别指向 `http://127.0.0.1:4318/v1/logs`、`/v1/traces`、`/v1/metrics`；不要为采样修改或提交用户级配置。采样器优先调用本机 `protoc --decode_raw` 生成观察文本，架构结论仍应使用 OpenTelemetry 官方 proto schema 复核。`/status` 只表示接收器监听和实际到达请求的结果；零请求的成功率与数据覆盖均为未知，不能据此判断 exporter 已配置或业务数据完整。
+
 记录查询支持 `sourceId` 和 `parseStatus`（`VALID_JSON`、`INVALID_JSON`、`INVALID_UTF8`）。返回 `items`、`hasMore`、`nextCursor`；后续请求把 `nextCursor` 作为 `afterId`。原始字节通过 JSON Base64 返回，原文保留 CRLF 中的 CR，LF 计入行的 `endOffset`。事件时间只读取可解析的 ISO 时间戳，不使用入库时间填补。
 
 错误返回稳定 `code`，不返回 SQL、原文或堆栈。拒绝非本机 Host 和跨源浏览器请求，不开放 CORS。

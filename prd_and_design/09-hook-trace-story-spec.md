@@ -1,5 +1,7 @@
 # Hook 采集与 Trace Story 规格
 
+> 本文记录已完成 E1-S1 的历史验收契约。E1-S2.2 已选择 OTel + Transcript、OTel-first；Hook 主链路不再是目标架构，现有实现只在迁移完成前用于回归和回滚。
+
 ## Story 信息
 
 - 编号：E1-S1。

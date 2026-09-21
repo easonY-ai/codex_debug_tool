@@ -24,8 +24,9 @@ import java.util.Map;
 public class BusinessOperationAuditAspect {
     private static final Logger logger = LoggerFactory.getLogger(BusinessOperationAuditAspect.class);
 
-    @Around("@within(dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations) "
-            + "&& execution(public * *(..))")
+    @Around("execution(public * *(..)) && ("
+            + "@within(dev.tracelens.domain.operationaldiagnostics.AuditedBusinessOperations) "
+            + "|| execution(public * dev.tracelens.domain.execution..*Service.*(..)))")
     public Object auditBusinessOperation(ProceedingJoinPoint joinPoint) throws Throwable {
         String operation = joinPoint.getSignature().getDeclaringType().getSimpleName()
                 + "." + joinPoint.getSignature().getName();

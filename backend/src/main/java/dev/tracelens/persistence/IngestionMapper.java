@@ -2,9 +2,9 @@ package dev.tracelens.persistence;
 
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
-import dev.tracelens.domain.hooknormalization.SessionLifecycle;
-import dev.tracelens.domain.hooknormalization.ToolLifecycle;
-import dev.tracelens.domain.hooknormalization.TurnLifecycle;
+import dev.tracelens.domain.execution.CodexSession;
+import dev.tracelens.domain.execution.CodexTurn;
+import dev.tracelens.domain.execution.ToolCall;
 import java.util.List;
 
 @Mapper
@@ -24,20 +24,26 @@ public interface IngestionMapper {
     long countPendingNormalizationJobs();
     long countHookEvents();
     NormalizationJob nextPendingNormalizationJob(@Param("now") long now);
-    void markNormalizationRunning(@Param("id") long id, @Param("now") long now);
+    int markNormalizationRunning(@Param("id") long id, @Param("now") long now);
     void markNormalizationCompleted(@Param("id") long id, @Param("now") long now);
     void markNormalizationFailed(@Param("id") long id, @Param("now") long now, @Param("errorCode") String errorCode);
     RawHookEvent hookEventById(long id);
-    void insertHookSession(SessionLifecycle session);
-    void updateHookSession(SessionLifecycle session);
-    void insertHookTurn(TurnLifecycle turn);
-    void updateHookTurn(TurnLifecycle turn);
-    void insertHookTool(ToolLifecycle tool);
-    void updateHookTool(ToolLifecycle tool);
+    void insertExecutionSession(CodexSession session);
+    int updateExecutionSession(CodexSession session);
+    void insertExecutionTurn(CodexTurn turn);
+    int updateExecutionTurn(CodexTurn turn);
+    void insertExecutionToolCall(ToolCall toolCall);
+    int updateExecutionToolCall(ToolCall toolCall);
+    void appendExecutionChange(@Param("aggregateType") String aggregateType,
+                               @Param("sessionId") String sessionId,
+                               @Param("turnId") String turnId,
+                               @Param("toolUseId") String toolUseId,
+                               @Param("aggregateRevision") int aggregateRevision,
+                               @Param("changedAt") Long changedAt);
     void updateHookParseStatus(@Param("id") long id, @Param("status") String status, @Param("errorCode") String errorCode);
-    java.util.Map<String, Object> hookSession(String sessionId);
-    java.util.Map<String, Object> hookTurn(@Param("sessionId") String sessionId, @Param("turnId") String turnId);
-    java.util.Map<String, Object> hookTool(@Param("sessionId") String sessionId, @Param("turnId") String turnId,
+    java.util.Map<String, Object> executionSession(String sessionId);
+    java.util.Map<String, Object> executionTurn(@Param("sessionId") String sessionId, @Param("turnId") String turnId);
+    java.util.Map<String, Object> executionToolCall(@Param("sessionId") String sessionId, @Param("turnId") String turnId,
                                            @Param("toolUseId") String toolUseId);
     List<java.util.Map<String, Object>> sessionTurns(@Param("query") String query, @Param("limit") int limit,
                                                       @Param("offset") int offset);
@@ -62,7 +68,6 @@ public interface IngestionMapper {
         @Param("mappingJson") String mappingJson, @Param("status") String status,
         @Param("validationError") String validationError, @Param("createdAt") long createdAt);
     void updateUnknownMappingStatus(@Param("id") long id, @Param("status") String status);
-    void alignExactOtelTools();
     void insertJsonlSupplement(@Param("nodeType") String nodeType,@Param("nodeId") String nodeId,
         @Param("rawRecordId") long rawRecordId,@Param("contentKind") String contentKind,@Param("callId") String callId,
         @Param("mappingLevel") String mappingLevel,@Param("evidenceJson") String evidenceJson,

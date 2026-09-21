@@ -3,70 +3,77 @@
 <mapper namespace="dev.tracelens.infrastructure.transcriptcontent.TranscriptContentMapper">
   <select id="findSessionsWithTranscript" resultType="dev.tracelens.domain.transcriptcontent.TranscriptSessionCandidate">
     SELECT session_id, transcript_path
-    FROM hook_session
+    FROM execution_session
     WHERE transcript_path IS NOT NULL
     ORDER BY last_observed_at, session_id_sha256
   </select>
   <select id="turnExists" resultType="boolean">
     SELECT EXISTS(
-      SELECT 1 FROM hook_turn
+      SELECT 1 FROM execution_turn
       WHERE session_id_sha256=UNHEX(SHA2(#{sessionId}, 256)) AND session_id=#{sessionId}
         AND turn_id_sha256=UNHEX(SHA2(#{turnId}, 256)) AND turn_id=#{turnId}
     )
   </select>
   <select id="toolExists" resultType="boolean">
     SELECT EXISTS(
-      SELECT 1 FROM hook_tool_call
+      SELECT 1 FROM execution_tool_call
       WHERE session_id_sha256=UNHEX(SHA2(#{sessionId}, 256)) AND session_id=#{sessionId}
         AND turn_id_sha256=UNHEX(SHA2(#{turnId}, 256)) AND turn_id=#{turnId}
         AND tool_use_id_sha256=UNHEX(SHA2(#{toolUseId}, 256)) AND tool_use_id=#{toolUseId}
     )
   </select>
   <select id="sourceByPath" resultType="dev.tracelens.persistence.SourceFile">
-    SELECT * FROM source_file WHERE path_sha256=UNHEX(SHA2(#{path}, 256)) AND path=#{path}
+    SELECT * FROM transcript WHERE path_sha256=UNHEX(SHA2(#{path}, 256)) AND path=#{path}
   </select>
   <select id="recordsForSource" resultType="dev.tracelens.domain.transcriptcontent.RawTranscriptRecord">
     SELECT id, parse_status, raw_text
-    FROM raw_jsonl_record
-    WHERE source_id=#{sourceId}
+    FROM transcript_item
+    WHERE transcript_id=#{sourceId}
     ORDER BY generation, byte_offset
   </select>
-  <insert id="upsertBinding">
-    INSERT INTO transcript_binding(session_id, configured_path, canonical_path, path_status, source_file_id,
-      session_meta_record_id, jsonl_session_id, session_check_status, adapter_version, checked_at)
-    VALUES(#{sessionId},#{configuredPath},#{canonicalPath},#{pathStatus},#{sourceFileId},#{sessionMetaRecordId},
-      #{jsonlSessionId},#{sessionCheckStatus},#{adapterVersion},#{checkedAt})
-    AS incoming
-    ON DUPLICATE KEY UPDATE configured_path=incoming.configured_path, canonical_path=incoming.canonical_path,
-      path_status=incoming.path_status, source_file_id=incoming.source_file_id,
-      session_meta_record_id=incoming.session_meta_record_id, jsonl_session_id=incoming.jsonl_session_id,
-      session_check_status=incoming.session_check_status, adapter_version=incoming.adapter_version,
-      checked_at=incoming.checked_at
-  </insert>
+  <update id="upsertBinding">
+    UPDATE transcript
+    SET configured_path=#{configuredPath}, canonical_path=#{canonicalPath}, path_status=#{pathStatus},
+      session_meta_item_id=#{sessionMetaRecordId}, meta_session_id=#{jsonlSessionId},
+      session_check_status=#{sessionCheckStatus}, adapter_version=#{adapterVersion}, checked_at=#{checkedAt},
+      revision=revision+1
+    WHERE id=#{sourceFileId}
+  </update>
   <select id="findBindings" resultType="dev.tracelens.domain.transcriptcontent.TranscriptBinding">
-    SELECT session_id, configured_path, canonical_path, path_status, source_file_id,
-      session_meta_record_id, jsonl_session_id, session_check_status, adapter_version, checked_at
-    FROM transcript_binding
-    ORDER BY checked_at DESC, id DESC
+    SELECT s.session_id, t.configured_path, t.canonical_path, t.path_status, t.id source_file_id,
+      t.session_meta_item_id session_meta_record_id, t.meta_session_id jsonl_session_id,
+      t.session_check_status, t.adapter_version, t.checked_at
+    FROM transcript t
+    JOIN execution_session s ON s.transcript_path=t.configured_path OR s.transcript_path=t.canonical_path
+    ORDER BY t.checked_at DESC, t.id DESC
   </select>
   <insert id="insertSupplement">
-    INSERT INTO jsonl_supplement(hook_node_type,hook_node_id,raw_record_id,content_kind,call_id,
-      mapping_level,evidence_json,adapter_version,content_text)
-    VALUES(#{supplement.hookNodeType},#{supplement.hookNodeId},#{supplement.rawRecordId},
+    INSERT INTO trace_transcript_evidence_link(
+      transcript_item_id,target_type,session_id,turn_id,tool_use_id,content_kind,call_id,
+      level,evidence_json,algorithm_version,content_text)
+    SELECT #{supplement.rawRecordId}, 'TURN', t.session_id, t.turn_id, NULL,
       #{supplement.contentKind},#{supplement.callId},#{supplement.mappingLevel},#{evidenceJson},
-      #{supplement.adapterVersion},#{supplement.contentText})
-    ON DUPLICATE KEY UPDATE id=jsonl_supplement.id
+      #{supplement.adapterVersion},#{supplement.contentText}
+    FROM execution_turn t
+    WHERE #{supplement.hookNodeType}='TURN' AND t.turn_id=#{supplement.hookNodeId}
+      AND (SELECT COUNT(*) FROM execution_turn c WHERE c.turn_id=#{supplement.hookNodeId})=1
+    UNION ALL
+    SELECT #{supplement.rawRecordId}, 'TOOL_CALL', c.session_id, c.turn_id, c.tool_use_id,
+      #{supplement.contentKind},#{supplement.callId},#{supplement.mappingLevel},#{evidenceJson},
+      #{supplement.adapterVersion},#{supplement.contentText}
+    FROM execution_tool_call c
+    WHERE #{supplement.hookNodeType}='TOOL' AND c.tool_use_id=#{supplement.hookNodeId}
+      AND (SELECT COUNT(*) FROM execution_tool_call x WHERE x.tool_use_id=#{supplement.hookNodeId})=1
+    ON DUPLICATE KEY UPDATE id=trace_transcript_evidence_link.id
   </insert>
   <select id="findSupplementsForTurn" resultType="dev.tracelens.domain.transcriptcontent.TranscriptSupplementEvidence">
-    SELECT s.id, s.hook_node_type, s.hook_node_id, s.raw_record_id, s.content_kind, s.call_id,
-      s.mapping_level, s.adapter_version, s.content_text, r.raw_text raw_json
-    FROM jsonl_supplement s
-    JOIN raw_jsonl_record r ON r.id=s.raw_record_id
-    WHERE (s.hook_node_type='TURN' AND s.hook_node_id=#{turnId})
-       OR (s.hook_node_type='TOOL' AND EXISTS(
-         SELECT 1 FROM hook_tool_call h
-         WHERE h.turn_id_sha256=UNHEX(SHA2(#{turnId}, 256)) AND h.turn_id=#{turnId}
-           AND h.tool_use_id_sha256=UNHEX(SHA2(s.hook_node_id, 256)) AND h.tool_use_id=s.hook_node_id))
+    SELECT s.id, CASE WHEN s.target_type='TOOL_CALL' THEN 'TOOL' ELSE 'TURN' END hook_node_type,
+      COALESCE(s.tool_use_id,s.turn_id) hook_node_id, s.transcript_item_id raw_record_id,
+      s.content_kind, s.call_id, s.level mapping_level, s.algorithm_version adapter_version,
+      s.content_text, r.raw_text raw_json
+    FROM trace_transcript_evidence_link s
+    JOIN transcript_item r ON r.id=s.transcript_item_id
+    WHERE s.turn_id_sha256=UNHEX(SHA2(#{turnId}, 256)) AND s.turn_id=#{turnId}
     ORDER BY r.event_time, r.id, s.id
   </select>
 </mapper>

@@ -41,7 +41,6 @@ public class OtelIngestionService {
                 Long duration=start!=null&&end!=null&&end>=start?end-start:null;
                 mapper.insertRawOtel(batch,index,signal,findText(object,"traceId"),findText(object,"spanId"),turnId,callId,kind,duration,
                         start!=null?start:findNanos(object,"timeUnixNano"),now,object.toString(),"VALID");}});
-            transactions.executeWithoutResult(status -> mapper.alignExactOtelTools());
             lastSuccess.put(signal, now);
         } catch (Exception invalid) {
             failures.computeIfAbsent(signal, ignored -> new AtomicLong()).incrementAndGet();

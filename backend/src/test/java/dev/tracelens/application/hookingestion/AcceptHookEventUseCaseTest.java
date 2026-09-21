@@ -3,7 +3,7 @@ package dev.tracelens.application.hookingestion;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import dev.tracelens.application.hooknormalization.NormalizationJobRepository;
+import dev.tracelens.application.execution.HookNormalizationJobRepository;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.transaction.TransactionStatus;
@@ -26,7 +26,7 @@ class AcceptHookEventUseCaseTest {
     @Test
     void acceptedDeliveryLogsOnlyTheStableDiagnosticFields() {
         RawHookEventRepository rawHookEventRepository = mock(RawHookEventRepository.class);
-        NormalizationJobRepository normalizationJobRepository = mock(NormalizationJobRepository.class);
+        HookNormalizationJobRepository hookNormalizationJobRepository = mock(HookNormalizationJobRepository.class);
         TransactionTemplate transaction = mock(TransactionTemplate.class);
         when(transaction.execute(any())).thenAnswer(invocation -> invocation.<org.springframework.transaction.support.TransactionCallback<?>>getArgument(0)
                 .doInTransaction(mock(TransactionStatus.class)));
@@ -38,7 +38,7 @@ class AcceptHookEventUseCaseTest {
         records.start();
         logger.addAppender(records);
         try {
-            new AcceptHookEventUseCase(rawHookEventRepository, normalizationJobRepository, transaction, (id, observedAt) -> { })
+            new AcceptHookEventUseCase(rawHookEventRepository, hookNormalizationJobRepository, transaction, (id, observedAt) -> { })
                     .accept("delivery-secret-demo", 1, "1", "raw-secret-demo");
         } finally {
             logger.detachAppender(records);

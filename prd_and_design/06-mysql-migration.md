@@ -13,7 +13,7 @@
 
 ## 一致性门禁
 
-- **已明确**：数据库选型变更由用户直接授权，不改变 Hook-first 数据语义、关联规则和指标口径。
+- **历史结论**：数据库选型变更本身不改变当时的 Hook-first 数据语义；E1-S2.2 后续独立把目标架构升级为 OTel + Transcript、OTel-first，数据库 baseline 必须在代码迁移前按新所有权重新评审并递增，不能沿用 baseline 2 名称静默改表。
 - **已明确**：现有 schema、Mapper、迁移器、启动脚本及测试依赖 SQLite，必须整体调整，不能仅替换 JDBC 驱动。
 - **已确认**：用户选择新的空 MySQL 数据库并保留原 SQLite 文件；不实施历史数据迁移。没有待确认的阻塞项。
 - **原型差异**：冻结 V2 的采集健康项写有 SQLite，属于旧存储选型；正式前端当前没有此文案。本次仅调整存储和测试配置，不改页面结构或交互，V1/V2 保持只读。后续若修改可见产品交互，按仓库规则创建 V3。
@@ -28,6 +28,33 @@
 - MySQL 条件唯一约束使用等价的 NULL 唯一索引语义；重复写入处理不能吞掉非重复键错误。
 - 迁移版本记录、重复启动和失败重试应有测试，考虑 MySQL DDL 隐式提交，不承诺 DDL 可整体事务回滚。
 - 更新 `run.sh`、后端运行文档和 Playwright 数据库配置，移除旧数据库文件参数。
+
+### S2.1 schema baseline 2
+
+- S2.1 采用新的空 schema baseline `2`，按 Execution、Transcript、Telemetry、Trace、Operations 数据所有权重新建表；不迁移、回填或双写当前 baseline `1` 数据。
+- 完整 baseline 2 DDL 在 S2.1-S2 先由失败测试锁定，再一次性更新 `backend/src/main/resources/schema.sql`。数据库仍由部署方显式创建表；应用不得执行 DDL、自动升级、自动清库或把不匹配版本修正为 `2`。
+- 启动时必须读取唯一的 schema 版本记录并精确校验为 `2`。缺表、多版本、未知版本或 baseline 不匹配均返回稳定配置错误，错误和日志不得包含 JDBC URL、账号或密码。
+- 需要从旧代码回滚时，代码与空 baseline `1` schema 成对回滚；不得对 baseline `2` 数据库执行原地降级。后续若 DDL 变化，先更新规格并递增 baseline，禁止版本值不变时静默改表。
+- `codex_analyze_test` 与正式库执行相同版本校验。任何自动测试只能清理已经核实为测试库的合成数据，不能自行 drop/recreate 用户数据库；重建动作由用户显式执行。
+
+### S2.2 目标 schema baseline 3
+
+用户于 2026-09-18 确认 V1.0 选择 OTel + Transcript。baseline 2 保留为 Hook-first 历史实现，不允许在版本号不变时删除 Hook 表或改变 Execution 所有权。代码迁移 Story 必须使用新的空 schema baseline `3`，不迁移、回填或双写 baseline 2 数据。
+
+目标所有权如下：
+
+| 上下文 | 逻辑表 | 关键约束 |
+| --- | --- | --- |
+| Schema | `schema_metadata` | 唯一记录必须精确为 `3`；应用只校验，不自动建表、升级或清库 |
+| Execution | `execution_raw_record`、`execution_normalization_job` | OTLP 协议身份或 `(batch_id, object_index)` 幂等；原始证据只追加；记录与任务同事务创建 |
+| Execution | `execution_session`、`execution_turn` | Session 以 `conversation_id` 唯一；Turn 以 `(conversation_id, turn_id)` 唯一；状态单调且保存 revision |
+| Execution | `execution_event`、`execution_performance_span` | Event 按协议身份幂等；Span 以 `(trace_id, span_id)` 唯一；父子关系和事件自身时间不得用接收顺序替代 |
+| Execution | `execution_change` | Execution 聚合/实体变化同事务追加单调序列 |
+| Transcript | `transcript`、`transcript_item`、UNKNOWN 相关表、`transcript_change` | 延续 Path/generation/byte offset 幂等、Meta Session ID 和内容侧 Turn/Call 候选 |
+| Trace | `trace_transcript_evidence_link`、`trace_tool_alignment` | 两侧身份、revision、等级和算法版本幂等；未验证公共工具 ID 时禁止 `EXACT` |
+| Trace | `trace_turn_view`、`trace_projection_checkpoint` | 每个 `(conversation_id, turn_id)` 一份读模型；关系与读模型提交后才推进检查点 |
+
+baseline 3 不包含 `execution_raw_hook_event`、Hook normalization job 或 Hook `tool_use_id` 作为目标业务身份。现有表只能随 baseline 2 代码保留作回滚，不能在 baseline 3 中以“兼容字段”继续写入。DDL、索引、外键和容量上限在新的代码迁移 Story 中先由失败测试锁定，再由用户显式重建空测试库；本轮技术方案决策不执行数据库操作。
 
 ## 验证要求
 

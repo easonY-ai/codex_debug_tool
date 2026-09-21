@@ -15,12 +15,12 @@
 
 | 项目 | 当前值 |
 | --- | --- |
-| 当前阶段 | 代码开发 |
-| 当前 Epic | E1 Hook 采集与 Trace 可视化 |
-| 当前 Story | 无；S2 已完成，S2.1 待启动 |
-| 当前测试 | 无进行中的测试；`IT-HOOK-TRACE-002` 步骤 1–12 已通过 |
-| 下一门禁 | 用户明确启动 S2.1 后，先完成需求与领域澄清、技术方案和一致性门禁，确认后才允许编码 |
-| 后续优先 Story | S2.1 问题域与聚合边界架构升级；完成前不启动 S3/S3.1 |
+| 当前阶段 | 需求澄清（V1.0 OTel + Transcript 覆盖可行性验证） |
+| 当前 Epic | E1 Execution 采集与 Trace 可视化 |
+| 当前 Story | S2.2 OTel-first 数据源方案升级 |
+| 当前测试 | F-01、F-02、F-04、F-05 已通过；最新安全契约覆盖 237 个批次（logs 156、traces 65、metrics 16）。F-03 已证明 0.154.0 无法交付 hosted tool 级身份、状态和耗时 |
+| 下一门禁 | hosted tool 范围和本地命令状态所有权已确认；用户确认并行子执行模型后，完成 S2.2 规格一致性门禁，才进入 V3 详细产品方案 |
+| 后续优先 Story | S2.2 完成后拆分 OTel-first 迁移 Story；不恢复验收现有 Hook-first S2.1-S2，也不直接启动旧 S2.1-S3、S3 或 S3.1 |
 
 ## Epic 与 Story
 
@@ -34,24 +34,29 @@
 | --- | --- | --- | --- |
 | S0 领域化架构升级 | 按问题子域拆分 DDD 分层；Hook 主链路结构化 DTO、Raw Event 特例、调度器/应用服务/领域模型/持久化边界 | 开发完成 | 用户已完成代码阅读；自动回归与 Story1 步骤 1–10 人工回归均通过 |
 
-### E1 Hook 采集与 Trace 可视化
+### E1 Execution 采集与 Trace 可视化
 
-- 状态：开发中，S2 已完成，下一 Story S2.1 待启动。
-- 目标：用 Hook 建立 Session/Turn/Tool 行为骨架，用 transcript 补内容，用 OTel 补性能，并在正式前端绘制 Trace。
+- 状态：开发中，当前进行 S2.2 OTel + Transcript 方案规格同步；S2.1 暂停。
+- 目标：以 OTel 建立执行与性能模型，用 Transcript 补充内容并在正式前端绘制 Trace；Hook 不进入目标架构，迁移完成前仅保留历史实现以支持回归和回滚。
 
 | Story | 范围 | 状态 | 当前证据/门禁 |
 | --- | --- | --- | --- |
 | S1 真实 Codex Hook 主链路 | Python 3.11 运行环境、Hook 配置与信任、forwarder、Hook 接收、MySQL 骨架、列表与 Trace 行为节点 | 开发完成 | `IT-HOOK-TRACE-001` 步骤 1–10 已在 S0 后人工回归通过；用户于 2026-09-16 明确接受 Story |
 | S1.1 本地运行日志 | CLI 与后端结构化按日日志、7 天保留、敏感字段脱敏；不含前端日志 | 开发完成 | CLI 6 项、后端 JDK 17/MySQL 全量 36 项及 `IT-LOG-001` 人工验收通过；用户于 2026-09-16 完成代码阅读并明确接受 Story |
 | S2 transcript 内容补齐 | 路径安全、session_meta 校验、用户/工具/最终内容挂接与三源证据检查 | 开发完成 | 后端 JDK 17/MySQL 全量 49 项、前端 19 项及生产构建通过；`IT-HOOK-TRACE-002` 步骤 1–12 和代码阅读通过；用户于 2026-09-16 明确接受 Story |
-| S2.1 问题域与聚合边界架构升级 | 先澄清 Hook、Transcript 与 Trace 的问题域、限界上下文和统一语言，再重审 Session/Turn/Tool 聚合边界、跨域读模型及 Repository 语义 | 待启动（下一优先） | S2 前置门禁已满足；等待用户明确启动，之后先完成领域分析、技术方案和一致性门禁，确认后才允许编码；完成前不启动 S3/S3.1 |
-| S3 OTel 性能 Trace | OTLP traces 接收、工具精确关联、耗时摘要守恒、精度标识 | 待启动 | S2.1 验收后再决定启动；TTFT/API 不得用 Hook 伪造 |
+| S2.1 问题域与聚合边界架构升级 | Execution、Transcript、Telemetry、Trace、Operations 边界和聚合升级 | 暂停（S2.1-S2 自动测试完成） | S2.1-S2 原实现及 61 项测试已通过但暂停人工验收；S2.2 将决定 Execution 的事实来源及当前 Hook-first 实现的复用、改造或废弃方式 |
+| S2.2 OTel-first 数据源方案升级 | V1.0 采用 OTel + Transcript，OTel 作为核心行为遥测与性能来源，Transcript 作为内容来源，移除目标架构中的 Hook | 开发中（人工决策门禁） | 用户于 2026-09-18 确认来源方案；F-01、F-02、F-04、F-05 已通过。2026-09-21 确认 hosted tool 级能力移至 V1.1 TODO，并确认本地命令结果由 Transcript 拥有；并行子执行模型确认前不进入 V3，不启动代码迁移 |
+| S3 OTel 性能 Trace | OTLP traces 接收、工具关联、耗时摘要守恒、精度标识 | 待启动 | S2.2 规格与 V3 门禁完成，且新的 OTel-first 迁移 Story 通过验收后再决定启动；`EXACT` 仅适用于版本化样本已验证的本地工具模型 Call ID |
 | S4 实时 Trace | SSE 更新、运行中到完成、缺失内容标记 | 待启动 | S3 验收后开始 |
 | S5 健壮性与降级 | 幂等、乱序、半行、错配、UNKNOWN、缺源、同名并行歧义 | 待启动 | S4 验收后开始 |
 
+### V1.1 TODO
+
+- Hosted tool 完整生命周期：重新验证目标 Codex 版本是否提供单次 hosted tool 的稳定身份、开始/结束、状态、耗时和可见结果契约；验证通过后再设计持久化、关联和页面能力，不从 Turn 级结果反推。
+
 | 强关联后续 Story | 所属范围 | 状态 | 说明与启动条件 |
 | --- | --- | --- | --- |
-| S3.1 Java 服务层 OTel 精确关联重构 | E1-S3 OTel 性能 Trace | 待启动（后续优先评估；强关联 S1） | 当前实现将 `Hook.tool_use_id == OTel codex.call_id` 直接写成 `EXACT`，但该相等性未由真实 Codex 样本验证，且不得视为默认跨命名空间契约。实施时将候选筛选、已验证公共 ID 判定、证据构建、算法版本和时间差计算迁移到 Java 服务层；Mapper 仅保留候选读取、关联写入和查询。S3 启动前先更新技术设计，补充真实样本契约、乱序、重复、空 ID 与不一致 ID 测试后再实施 |
+| S3.1 Java 服务层 OTel 关联重构 | E1-S3 OTel 性能 Trace | 待启动（待重新定义） | 按 OTel-to-Transcript 关系重新定义，不再以 Hook Tool 为目标；候选筛选、证据等级、算法版本和时间差计算仍必须位于 Java 服务层，Mapper 只负责持久化 |
 
 ### E2 完整性、指标与诊断
 

@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "evidenceLevel": "OFFICIAL",
+  "source": "https://learn.chatgpt.com/docs/config-file/config-advanced#otel-metrics-emitted",
+  "capturedAt": "2026-09-18",
+  "scope": {
+    "eventsAreRepresentative": true,
+    "unlistedEventsAreNotAssumed": true,
+    "anonymousAnalyticsCatalogIsOtelExport": false
+  },
+  "configurationSemantics": {
+    "disabledByDefault": true,
+    "noneExporterSendsNothing": true,
+    "cliConfigOverrideSupported": true,
+    "projectLocalOtelIgnored": true,
+    "exportersBatchAsynchronously": true,
+    "exportersFlushOnShutdown": true
+  },
+  "structuredLogEvents": [
+    {
+      "name": "codex.conversation_starts",
+      "documentedInformation": [
+        "model",
+        "reasoning settings",
+        "sandbox policy",
+        "approval policy"
+      ]
+    },
+    {
+      "name": "codex.api_request",
+      "documentedInformation": [
+        "attempt",
+        "status",
+        "success",
+        "duration",
+        "error details"
+      ]
+    },
+    {
+      "name": "codex.sse_event",
+      "documentedInformation": [
+        "stream event kind",
+        "success",
+        "duration",
+        "response.completed token counts"
+      ]
+    },
+    {
+      "name": "codex.websocket_request",
+      "documentedInformation": [
+        "request duration"
+      ]
+    },
+    {
+      "name": "codex.websocket_event",
+      "documentedInformation": [
+        "message kind",
+        "success",
+        "error"
+      ]
+    },
+    {
+      "name": "codex.user_prompt",
+      "documentedInformation": [
+        "length",
+        "content redacted unless explicitly enabled"
+      ]
+    },
+    {
+      "name": "codex.tool_decision",
+      "documentedInformation": [
+        "approved or denied",
+        "decision source: configuration or user"
+      ]
+    },
+    {
+      "name": "codex.tool_result",
+      "documentedInformation": [
+        "duration",
+        "success",
+        "output snippet"
+      ]
+    }
+  ],
+  "otelMetrics": {
+    "defaultMetadataTags": [
+      "auth_mode",
+      "originator",
+      "session_source",
+      "model",
+      "app.version"
+    ],
+    "catalog": [
+      {
+        "name": "codex.api_request",
+        "type": "counter",
+        "fields": ["status", "success"]
+      },
+      {
+        "name": "codex.api_request.duration_ms",
+        "type": "histogram",
+        "fields": ["status", "success"],
+        "unit": "ms"
+      },
+      {
+        "name": "codex.sse_event",
+        "type": "counter",
+        "fields": ["kind", "success"]
+      },
+      {
+        "name": "codex.sse_event.duration_ms",
+        "type": "histogram",
+        "fields": ["kind", "success"],
+        "unit": "ms"
+      },
+      {
+        "name": "codex.websocket.request",
+        "type": "counter",
+        "fields": ["success"]
+      },
+      {
+        "name": "codex.websocket.request.duration_ms",
+        "type": "histogram",
+        "fields": ["success"],
+        "unit": "ms"
+      },
+      {
+        "name": "codex.websocket.event",
+        "type": "counter",
+        "fields": ["kind", "success"]
+      },
+      {
+        "name": "codex.websocket.event.duration_ms",
+        "type": "histogram",
+        "fields": ["kind", "success"],
+        "unit": "ms"
+      },
+      {
+        "name": "codex.tool.call",
+        "type": "counter",
+        "fields": ["tool", "success"]
+      },
+      {
+        "name": "codex.tool.call.duration_ms",
+        "type": "histogram",
+        "fields": ["tool", "success"],
+        "unit": "ms"
+      }
+    ]
+  }
+}

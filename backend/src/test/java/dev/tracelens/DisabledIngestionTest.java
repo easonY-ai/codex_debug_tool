@@ -18,8 +18,8 @@ class DisabledIngestionTest extends MySqlIntegrationSupport {
     @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @org.junit.jupiter.api.BeforeEach void clearRawData() {
-        jdbc.update("DELETE FROM raw_jsonl_record");
-        jdbc.update("DELETE FROM source_file");
+        jdbc.update("DELETE FROM transcript_item");
+        jdbc.update("DELETE FROM transcript");
     }
 
     @Test void defaultsNeverReadUserSessions() throws Exception {

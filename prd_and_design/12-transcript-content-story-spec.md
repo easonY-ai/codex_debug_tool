@@ -1,5 +1,7 @@
 # Story2：Transcript 内容补齐
 
+> 本文记录已完成 E1-S2 的 Hook-first 历史验收契约。E1-S2.2 后 Transcript 仍拥有可见内容，但目标关联对象改为 OTel 建立的 Execution Session/Turn；下文 Hook 挂接规则只用于迁移回归，不是目标设计。
+
 ## Story 信息
 
 - 编号：E1-S2。

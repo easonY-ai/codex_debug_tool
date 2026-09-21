@@ -2,7 +2,7 @@ package dev.tracelens;
 
 import dev.tracelens.config.JsonlProperties;
 import dev.tracelens.ingestion.JsonlScanner;
-import dev.tracelens.application.hooknormalization.NormalizeHookEventUseCase;
+import dev.tracelens.application.execution.NormalizeNextHookDeliveryUseCase;
 import dev.tracelens.application.transcriptcontent.SupplementTranscriptContentUseCase;
 import dev.tracelens.ingestion.RawLineParser;
 import dev.tracelens.persistence.IngestionMapper;
@@ -39,7 +39,7 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
     @Autowired RawLineParser parser;
     @Autowired JsonlProperties properties;
     @Autowired TransactionTemplate transaction;
-    @Autowired NormalizeHookEventUseCase hookWorker;
+    @Autowired NormalizeNextHookDeliveryUseCase hookWorker;
     @Autowired DataSource database;
     @Autowired MockMvc mvc;
     @Autowired SupplementTranscriptContentUseCase transcriptContentUseCase;
@@ -55,20 +55,24 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
 
     @BeforeEach void reset() throws Exception {
         try (var connection = database.getConnection(); var statement = connection.createStatement()) {
-            statement.execute("DELETE FROM performance_alignment");
-            statement.execute("DELETE FROM raw_otel_object");
-            statement.execute("DELETE FROM unknown_mapping");
-            statement.execute("DELETE FROM unknown_record");
-            statement.execute("DELETE FROM unknown_fingerprint");
-            statement.execute("DELETE FROM jsonl_supplement");
-            statement.execute("DELETE FROM transcript_binding");
-            statement.execute("DELETE FROM normalization_job");
-            statement.execute("DELETE FROM hook_tool_call");
-            statement.execute("DELETE FROM hook_turn");
-            statement.execute("DELETE FROM hook_session");
-            statement.execute("DELETE FROM raw_hook_event");
-            statement.execute("DELETE FROM raw_jsonl_record");
-            statement.execute("DELETE FROM source_file");
+            statement.execute("DELETE FROM trace_projection_checkpoint");
+            statement.execute("DELETE FROM trace_turn_view");
+            statement.execute("DELETE FROM trace_telemetry_alignment");
+            statement.execute("DELETE FROM trace_transcript_evidence_link");
+            statement.execute("DELETE FROM telemetry_change");
+            statement.execute("DELETE FROM telemetry_record");
+            statement.execute("DELETE FROM transcript_change");
+            statement.execute("DELETE FROM transcript_unknown_mapping");
+            statement.execute("DELETE FROM transcript_unknown_item");
+            statement.execute("DELETE FROM transcript_unknown_fingerprint");
+            statement.execute("DELETE FROM transcript_item");
+            statement.execute("DELETE FROM transcript");
+            statement.execute("DELETE FROM execution_change");
+            statement.execute("DELETE FROM execution_normalization_job");
+            statement.execute("DELETE FROM execution_tool_call");
+            statement.execute("DELETE FROM execution_turn");
+            statement.execute("DELETE FROM execution_session");
+            statement.execute("DELETE FROM execution_raw_hook_event");
         }
         if (Files.exists(SESSIONS)) {
             try (var paths = Files.walk(SESSIONS)) {
@@ -245,15 +249,15 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
     @Test void mysqlUsesInnoDbForeignKeysAndIndexedCursor() throws Exception {
         try (var connection = database.getConnection(); var statement = connection.createStatement()) {
             assertThat(connection.getMetaData().getDatabaseProductName()).isEqualTo("MySQL");
-            try (var row = statement.executeQuery("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='raw_jsonl_record'")) {
+            try (var row = statement.executeQuery("SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='transcript_item'")) {
                 row.next(); assertThat(row.getString(1)).isEqualTo("InnoDB");
             }
             try (var row = statement.executeQuery("SELECT @@foreign_key_checks")) { row.next(); assertThat(row.getInt(1)).isEqualTo(1); }
-            try (var row = statement.executeQuery("EXPLAIN FORMAT=TRADITIONAL SELECT * FROM raw_jsonl_record WHERE id > 10 ORDER BY id LIMIT 50")) {
+            try (var row = statement.executeQuery("EXPLAIN FORMAT=TRADITIONAL SELECT * FROM transcript_item WHERE id > 10 ORDER BY id LIMIT 50")) {
                 row.next(); assertThat(row.getString("possible_keys")).contains("PRIMARY");
             }
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> statement.executeUpdate(
-                    "INSERT INTO raw_jsonl_record(source_id,generation,byte_offset,end_offset,content_hash,raw_bytes,raw_text,parse_status,ingested_at) VALUES(-1,0,0,0,'demo',X'00','demo','VALID_JSON',0)"))
+                    "INSERT INTO transcript_item(transcript_id,transcript_path,generation,byte_offset,end_offset,content_hash,raw_bytes,raw_text,parse_status,ingested_at) VALUES(-1,'/workspace/demo-project/missing.jsonl',0,0,0,'demo',X'00','demo','VALID_JSON',0)"))
                     .isInstanceOf(java.sql.SQLException.class);
         }
     }
@@ -321,18 +325,18 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
                 {"session_id":"session-demo","transcript_path":"/workspace/demo.jsonl","cwd":"/workspace/demo",
                  "model":"model-demo","hook_event_name":"PostToolUse","turn_id":"turn-demo","tool_use_id":"tool-demo",
                  "tool_name":"Bash","tool_response":{"exit_code":0}}""");
-        assertThat(hookWorker.processAvailable()).isTrue();
-        assertThat(mapper.hookTool("session-demo", "turn-demo", "tool-demo"))
-                .containsEntry("state", "SUCCESS").containsEntry("duration_valid", 0);
+        assertThat(hookWorker.normalizeNextHookDelivery()).isTrue();
+        assertThat(mapper.executionToolCall("session-demo", "turn-demo", "tool-demo"))
+                .containsEntry("state", "SUCCESS").containsEntry("duration_valid", false);
 
         postHook("10000000-0000-4000-8000-000000000012", 1000, """
                 {"session_id":"session-demo","transcript_path":"/workspace/demo.jsonl","cwd":"/workspace/demo",
                  "model":"model-demo","hook_event_name":"PreToolUse","turn_id":"turn-demo","tool_use_id":"tool-demo",
                  "tool_name":"Bash","tool_input":{}}""");
-        hookWorker.processAvailable();
-        assertThat(mapper.hookTool("session-demo", "turn-demo", "tool-demo"))
+        hookWorker.normalizeNextHookDelivery();
+        assertThat(mapper.executionToolCall("session-demo", "turn-demo", "tool-demo"))
                 .containsEntry("state", "SUCCESS").containsEntry("estimated_duration_ms", 1000L)
-                .containsEntry("duration_valid", 1);
+                .containsEntry("duration_valid", true);
 
         postHook("10000000-0000-4000-8000-000000000013", 3000, """
                 {"session_id":"session-demo","transcript_path":null,"cwd":"/workspace/demo","model":"model-demo",
@@ -343,8 +347,8 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
         postHook("10000000-0000-4000-8000-000000000015", 5000, """
                 {"session_id":"session-demo","transcript_path":null,"cwd":"/workspace/demo","model":"model-demo",
                  "hook_event_name":"UserPromptSubmit","turn_id":"turn-terminal","prompt":"Late duplicate"}""");
-        hookWorker.processAvailable(); hookWorker.processAvailable(); hookWorker.processAvailable();
-        assertThat(mapper.hookTurn("session-demo", "turn-terminal")).containsEntry("state", "COMPLETED");
+        hookWorker.normalizeNextHookDelivery(); hookWorker.normalizeNextHookDelivery(); hookWorker.normalizeNextHookDelivery();
+        assertThat(mapper.executionTurn("session-demo", "turn-terminal")).containsEntry("state", "COMPLETED");
     }
 
     @Test void hookNormalizationRejectsNegativeEstimatedDuration() throws Exception {
@@ -354,9 +358,36 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
         postHook("10000000-0000-4000-8000-000000000022", 2000, """
                 {"session_id":"negative-demo","transcript_path":null,"cwd":"/workspace/demo","model":"model-demo",
                  "hook_event_name":"PreToolUse","turn_id":"turn-demo","tool_use_id":"tool-demo","tool_input":{}}""");
-        hookWorker.processAvailable(); hookWorker.processAvailable();
-        assertThat(mapper.hookTool("negative-demo", "turn-demo", "tool-demo"))
-                .containsEntry("duration_valid", 0).doesNotContainKey("estimated_duration_ms");
+        hookWorker.normalizeNextHookDelivery(); hookWorker.normalizeNextHookDelivery();
+        assertThat(mapper.executionToolCall("negative-demo", "turn-demo", "tool-demo"))
+                .containsEntry("duration_valid", false).doesNotContainKey("estimated_duration_ms");
+    }
+
+    @Test
+    void equalTurnIdsInDifferentSessionsRemainIsolatedAndPublishSeparateChanges() throws Exception {
+        postHook("10000000-0000-4000-8000-000000000023", 1000, """
+                {"session_id":"session-a","transcript_path":null,"cwd":"/workspace/demo-a","model":"model-a",
+                 "hook_event_name":"UserPromptSubmit","turn_id":"shared-turn","prompt":"Prompt A"}""");
+        postHook("10000000-0000-4000-8000-000000000024", 2000, """
+                {"session_id":"session-b","transcript_path":null,"cwd":"/workspace/demo-b","model":"model-b",
+                 "hook_event_name":"UserPromptSubmit","turn_id":"shared-turn","prompt":"Prompt B"}""");
+
+        hookWorker.normalizeNextHookDelivery();
+        hookWorker.normalizeNextHookDelivery();
+
+        assertThat(mapper.executionTurn("session-a", "shared-turn"))
+                .containsEntry("title", "Prompt A")
+                .containsEntry("working_directory", "/workspace/demo-a");
+        assertThat(mapper.executionTurn("session-b", "shared-turn"))
+                .containsEntry("title", "Prompt B")
+                .containsEntry("working_directory", "/workspace/demo-b");
+        try (var connection = database.getConnection();
+             var statement = connection.createStatement();
+             var rows = statement.executeQuery(
+                     "SELECT COUNT(*) FROM execution_change WHERE aggregate_type='TURN' AND turn_id='shared-turn'")) {
+            rows.next();
+            assertThat(rows.getLong(1)).isEqualTo(2);
+        }
     }
 
     private void postHook(String deliveryId, long observedAt, String rawEvent) throws Exception {
@@ -368,7 +399,7 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
                 .andExpect(status().isAccepted());
     }
 
-    @Test void realQueryAndOtelApisExposeHookBackedTurnAndExactToolAlignment() throws Exception {
+    @Test void realQueryAndOtelApisDoNotInventExactAlignmentFromUnverifiedCallIds() throws Exception {
         postHook("10000000-0000-4000-8000-000000000031", 1000, """
           {"session_id":"session-api","transcript_path":null,"cwd":"/workspace/demo-project","model":"model-demo",
            "hook_event_name":"UserPromptSubmit","turn_id":"turn-api","prompt":"Synthetic API acceptance"}""");
@@ -381,7 +412,7 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
         postHook("10000000-0000-4000-8000-000000000034", 6000, """
           {"session_id":"session-api","transcript_path":null,"cwd":"/workspace/demo-project","model":"model-demo",
            "hook_event_name":"Stop","turn_id":"turn-api","stop_hook_active":false}""");
-        while (hookWorker.processAvailable()) { }
+        while (hookWorker.normalizeNextHookDelivery()) { }
         assertThat(mapper.sessionTurns("", 50, 0)).hasSize(1);
         mvc.perform(get("/api/sessions").header("Host","localhost"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].title").value("Synthetic API acceptance"));
@@ -392,8 +423,8 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
         mvc.perform(post("/v1/traces").header("Host","localhost").contentType("application/json").content(otlp))
                 .andExpect(status().isOk());
         mvc.perform(get("/api/sessions/turn-api/analysis").header("Host","localhost"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.performanceSpans.length()").value(1))
-                .andExpect(jsonPath("$.alignments[0].level").value("EXACT"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.performanceSpans.length()").value(0))
+                .andExpect(jsonPath("$.alignments.length()").value(0))
                 .andExpect(jsonPath("$.aggregates.totalMs").value(5000))
                 .andExpect(jsonPath("$.aggregates.toolMs").value(3000))
                 .andExpect(jsonPath("$.aggregates.unattributedMs").value(2000));
@@ -408,7 +439,7 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
           {"type":"future_event","payload":{"items":[{"text":"one"},{"text":"two"}]}}
           """);
         String raw="{\"session_id\":\"session-bound\",\"transcript_path\":\""+transcript+"\",\"cwd\":\"/workspace/demo-project\",\"model\":\"model-demo\",\"hook_event_name\":\"SessionStart\"}";
-        postHook("10000000-0000-4000-8000-000000000041",1000,raw); hookWorker.processAvailable();
+        postHook("10000000-0000-4000-8000-000000000041",1000,raw); hookWorker.normalizeNextHookDelivery();
         transcriptContentUseCase.processAvailable();
         mvc.perform(get("/api/ingestion/transcripts/status").header("Host","localhost"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].pathStatus").value("VALID"))
@@ -442,7 +473,7 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
         postHook("20000000-0000-4000-8000-000000000005", 5000, """
           {"session_id":"session-content","transcript_path":"%s","cwd":"/workspace/demo-project","model":"model-demo",
            "hook_event_name":"Stop","turn_id":"turn-content","stop_hook_active":false}""".formatted(transcript));
-        while (hookWorker.processAvailable()) { }
+        while (hookWorker.normalizeNextHookDelivery()) { }
 
         transcriptContentUseCase.processAvailable();
         transcriptContentUseCase.processAvailable();
@@ -456,7 +487,7 @@ class IngestionIntegrationTest extends MySqlIntegrationSupport {
                 .andExpect(jsonPath("$.jsonlSupplements[3].contentText").value("Synthetic final answer"));
         try (var connection = database.getConnection();
              var statement = connection.createStatement();
-             var rows = statement.executeQuery("SELECT COUNT(*) FROM jsonl_supplement")) {
+             var rows = statement.executeQuery("SELECT COUNT(*) FROM trace_transcript_evidence_link")) {
             rows.next();
             assertThat(rows.getLong(1)).isEqualTo(4);
         }

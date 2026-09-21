@@ -152,7 +152,7 @@ public class JsonlScanner implements AutoCloseable {
         BasicFileAttributes attrs = Files.readAttributes(canonical, BasicFileAttributes.class, NOFOLLOW_LINKS);
         String identity = identity(attrs);
         try (FileChannel channel = FileChannel.open(canonical, READ, NOFOLLOW_LINKS)) {
-            // source_file 保存文件身份、代次和 byte offset，是后续增量读取与幂等处理的依据。
+            // Transcript 保存文件身份、代次和 byte offset，是后续增量读取与幂等处理的依据。
             SourceFile previous = mapper.sourceByPath(canonical.toString());
             if (previous == null) {
                 SourceFile initial = new SourceFile(0, canonical.toString(), identity, 0, 0, RawLineParser.hash(new byte[0]),

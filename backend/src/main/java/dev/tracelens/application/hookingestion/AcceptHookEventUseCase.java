@@ -5,7 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import dev.tracelens.application.hooknormalization.NormalizationJobRepository;
+import dev.tracelens.application.execution.HookNormalizationJobRepository;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -25,16 +25,17 @@ public class AcceptHookEventUseCase {
                          Long p50ProcessingMs, Long p95ProcessingMs, Long p99ProcessingMs, Long maxProcessingMs) { }
 
     private final RawHookEventRepository rawHookEventRepository;
-    private final NormalizationJobRepository normalizationJobRepository;
+    private final HookNormalizationJobRepository hookNormalizationJobRepository;
     private final TransactionTemplate transaction;
     private final HookAcceptedNotifier notifier;
     private final List<Long> samples = new ArrayList<>();
     private long requests, accepted, duplicates, clientErrors, serverErrors;
     private Long lastSuccessAt;
 
-    public AcceptHookEventUseCase(RawHookEventRepository rawHookEventRepository, NormalizationJobRepository normalizationJobRepository,
+    public AcceptHookEventUseCase(RawHookEventRepository rawHookEventRepository, HookNormalizationJobRepository hookNormalizationJobRepository,
                                   TransactionTemplate transaction, HookAcceptedNotifier notifier) {
-        this.rawHookEventRepository = rawHookEventRepository; this.normalizationJobRepository = normalizationJobRepository;
+        this.rawHookEventRepository = rawHookEventRepository;
+        this.hookNormalizationJobRepository = hookNormalizationJobRepository;
         this.transaction = transaction; this.notifier = notifier;
     }
 
@@ -46,7 +47,7 @@ public class AcceptHookEventUseCase {
             Result result = transaction.execute(status -> {
                 if (rawHookEventRepository.existsByDeliveryId(deliveryId)) return new Result(deliveryId, "DUPLICATE");
                 long rawEventId = rawHookEventRepository.append(deliveryId, observedAt, receivedAt, forwarderVersion, rawJson);
-                normalizationJobRepository.enqueueForRawHookEvent(rawEventId, receivedAt);
+                hookNormalizationJobRepository.enqueueRawHookEvent(rawEventId, receivedAt);
                 return new Result(deliveryId, "ACCEPTED");
             });
             synchronized (this) {
@@ -69,7 +70,7 @@ public class AcceptHookEventUseCase {
     public synchronized Status status() {
         List<Long> sorted = samples.stream().sorted(Comparator.naturalOrder()).toList();
         return new Status(System.currentTimeMillis(), lastSuccessAt, requests, accepted, duplicates, clientErrors, serverErrors,
-                normalizationJobRepository.countPending(), percentile(sorted, .50), percentile(sorted, .95), percentile(sorted, .99),
+                hookNormalizationJobRepository.countPendingNormalizations(), percentile(sorted, .50), percentile(sorted, .95), percentile(sorted, .99),
                 sorted.isEmpty() ? null : sorted.get(sorted.size() - 1));
     }
 

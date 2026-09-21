@@ -1,9 +1,25 @@
 # Hook/Trace 主链路集成测试与验收记录
 
+> 本文的 `IT-HOOK-TRACE-*` 是已验收 Hook-first 历史基线。用户于 2026-09-18 确认 V1.0 选择 OTel + Transcript、OTel-first，且不要求逐事件复刻 Hook；这些用例用于迁移回归和差异比较，不作为目标架构的等价性验收。代码迁移前必须新增 OTel→Execution→Transcript→Trace 主链路用例，并保留工具 `EXACT` 的版本化样本门禁。
+
+## OTel + Transcript 目标主链路用例（计划，未授权执行）
+
+| 编号 | 场景 | 关键步骤 | 通过标准 |
+| --- | --- | --- | --- |
+| `IT-OTEL-TRACE-001` | 普通回复 | 启用仅回环 OTLP exporter，产生一个无工具 Turn，等待 Transcript 增量读取并打开 Trace | OTel `conversation.id/turn.id` 建立唯一 Session/Turn；Transcript 相同身份补齐输入与最终输出；无 Hook 投递；API/TTFT 只来自 OTel |
+| `IT-OTEL-TRACE-002` | 单工具成功 | 产生一个明确工具调用，检查 OTel Tool 事件/Span 与 Transcript `call_id` | 两侧先精确落入同一 Turn；只有版本化公共调用 ID 才显示 `EXACT`，否则显示 `INFERRED/UNMATCHED`；工具耗时使用 OTel |
+| `IT-OTEL-TRACE-003` | 工具失败或中断 | 产生失败或缺失终态的工具场景 | 原始两侧证据保留；Turn/Tool 不被误标成功；缺失终态明确显示不完整 |
+| `IT-OTEL-TRACE-004` | 同类工具串行与并行 | 同 Turn 先串行、再并行执行同类工具 | 串行候选只有在类型、时间、顺序唯一时可为 `INFERRED`；并行歧义保持 `UNMATCHED` |
+| `IT-OTEL-TRACE-005` | OTel 缺失 | 禁用 exporter，仅产生 Transcript | 只显示 Transcript 来源健康、原始记录和内容检查；不创建正式性能 Trace，不用 Transcript 伪造 API/TTFT |
+| `IT-OTEL-TRACE-006` | Transcript 缺失 | 启用 OTel，但关闭或阻断 Transcript 读取 | 正式执行与性能 Trace 可用，内容明确缺失；采集健康区分 OTel 成功与 Transcript 失败 |
+| `IT-OTEL-TRACE-007` | 重复、乱序与延迟 | 重放合成 OTLP 批次并延迟 Transcript Item | Execution 幂等；状态不回退；Trace 通过 Change Feed 重算收敛，节点和内容不重复 |
+
+这些用例必须使用合成 fixture 或人工本机验证，真实载荷、路径、账号和凭据不得进入仓库。`IT-OTEL-TRACE-002` 至 `004` 的工具契约未完成版本化采样前只能保持计划状态，不能用假定字段写实现测试。
+
 ## 执行策略
 
 - `IT-HOOK-TRACE-001` 与 `IT-HOOK-TRACE-002` 均已完成，并作为后续架构升级和功能 Story 的回归基线。
-- 当前没有获授权执行的新集成测试；下一优先 Story 是 S2.1，须由用户明确启动，且其完成前不开始 S3/S3.1。
+- 当前没有获授权执行的新集成测试；S2.1-S1 设计基线已完成并等待用户确认，完成架构迁移后必须回归既有主链路，且其验收前不开始 S3/S3.1。
 - 历史自动化结果只作为回归基线，不代替本次真实 Codex 人工验收。
 - 真实数据只留在本机，不得将会话、凭据、本机路径或日志提交到公开仓库。
 
@@ -200,4 +216,4 @@ npm run dev -- --port 4173
 
 ## 当前结论
 
-E1-S1、E1-S1.1 与 E1-S2 均已完成并由用户接受。`IT-HOOK-TRACE-002` 步骤 1–12、代码阅读和自动回归全部通过。下一优先 Story 是已登记的 S2.1 问题域与聚合边界架构升级，目前尚未启动；未经用户明确指令不进入其需求澄清或后续编码。
+E1-S1、E1-S1.1 与 E1-S2 均已完成并由用户接受。`IT-HOOK-TRACE-002` 步骤 1–12、代码阅读和自动回归全部通过。S2.1-S1 设计基线已完成并等待用户确认；尚未授权新的集成测试或业务代码修改。架构迁移完成后必须重新执行受影响的 S1、S1.1、S2 自动与人工回归。

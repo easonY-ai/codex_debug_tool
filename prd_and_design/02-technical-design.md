@@ -4,7 +4,133 @@
 
 产品是本地 Web 应用。Java 进程负责数据采集、解析、存储和查询；Vue 页面负责可视化分析。发布时前端静态资源嵌入 Spring Boot JAR，开发时前后端独立启动。
 
-## Story0 持久化端口边界
+## S2.2 目标架构决策：OTel + Transcript
+
+用户于 2026-09-18 确认 V1.0 目标运行架构只融合 OTel 与 Transcript。OTel 是 Execution 的正式核心行为遥测与性能入站来源，负责官方已定义的 Session/Turn 身份、事件、请求/工具遥测、Span 父子关系和性能；Transcript 独立负责用户可见内容、工具参数/结果、历史增量读取和原始 JSONL。Hook 不进入目标模型，也不作为可选兜底；现有 Hook、forwarder、表和代码只在迁移完成前作为历史实现保留。
+
+该选择优于另外两种组合：
+
+| 组合 | 结论 | 技术原因 |
+| --- | --- | --- |
+| Hook + OTel + Transcript | 不选 | 重复维护 Session/Turn/Tool 事实与两组跨源关联；Hook 无官方事件时间、无历史重放、覆盖不完整，且不能替代 OTel 的 API/TTFT/父子 Span |
+| OTel + Transcript | 选择 | Session/Turn 已有经样本验证的公共身份；两个来源分别完整覆盖执行/性能与内容/历史，边界清晰且采集链路最少 |
+| Hook + Transcript | 不选 | 缺失 API、TTFT、传输回退、Span 父子关系和精确性能，不能满足产品核心目标 |
+
+“以 OTel 为准”采用字段级事实所有权，不允许整条记录互相覆盖：
+
+- Execution 的存在、生命周期、状态、事件时间和性能字段以 OTel 为准。
+- 用户输入、模型可见输出、reasoning summary、工具参数/结果和 JSONL 原文以 Transcript 为准。
+- Session/Turn 跨源身份只有在 `conversation.id == session_meta.session_id` 且同 Session 下 `turn.id == TranscriptItem.turnId` 时才是 `EXACT`；不一致时不合并。
+- Transcript `callId` 是内容侧 Tool Call 身份。Codex 0.154.0 本地工具的 OTel `call_id` 已验证与模型级 `custom_tool_call.call_id` 同值，可产生 Tool `EXACT`；hosted tools、其他版本或没有已验证共同身份的记录按类型、事件时间和顺序产生 `INFERRED` 候选，歧义时保持 `UNMATCHED`。
+
+V1.0 不把“采用 OTel + Transcript”解释为“两源是 Hook 的无损超集”。官方 OTel events/metrics、目标版本真实 OTLP 样本与 Transcript 已支持记录构成 V1.0 能力边界；匿名指标目录本身不证明本地 OTLP 可得，真实样本可以形成 `VERSIONED_SAMPLE` 证据。Metrics 仍不能创建单次 Execution Event。Hook 特有事件若没有等价证据，不进入规范化模型；正式编码前必须建立 Hook 事件到 OTel event/log/span、TranscriptItem 或“不支持”的覆盖矩阵，并用该矩阵驱动 V3 页面缺失态。
+
+本地工具级与 Turn 终态样本已经取得。用户于 2026-09-21 确认：hosted tool 级身份、状态和耗时移出 V1.0，并登记为 V1.1 TODO；本地命令结果由 Transcript `CommandExecution.status/exit_code` 独占，缺失时为 `UNKNOWN`。并行 `CommandExecution` 的聚合建模仍待用户确认；确认前不启动代码迁移。
+
+### 目标问题域与上下文
+
+OTel 和 JSONL 是入站协议/证据格式，不是问题域。目标上下文如下：
+
+| 上下文 | 类型 | 所有数据与能力 | 对外契约 |
+| --- | --- | --- | --- |
+| Execution | 核心域 | 由版本化 OTel 适配器接收的原始执行证据、Codex Session、Codex Turn、执行事件和性能 Span | `ExecutionTurnQuery`、`ChangedExecutionTurnQuery` |
+| Transcript | 支撑域 | Transcript、Meta、Item、UNKNOWN、内容侧 Tool Call 分组和增量检查点 | `TranscriptQuery`、`TranscriptItemQuery`、`ChangedTranscriptTurnQuery` |
+| Trace | 核心域 | Transcript Evidence Link、Tool Alignment、Turn Trace 投影和消费检查点 | `TraceViewQuery` |
+| Operations | 支撑域 | OTel/Transcript 接收状态、队列和运行期指标摘要 | 各采集面状态 Query |
+
+```text
+Codex OTLP -> Execution --ExecutionTurn/ChangeFeed--+
+Codex JSONL -> Transcript --TranscriptItem/ChangeFeed-+--> Trace --> TraceViewQuery --> HTTP
+Execution / Transcript --status summaries-----------> Operations
+```
+
+Execution 使用业务语言，不把 Session/Turn 聚合命名为 OTel 聚合。OTLP Controller、protobuf 解码和生产者字段映射位于 Execution 的 Infrastructure 适配器；Domain 不依赖 OTLP、protobuf 或具体 Codex 版本。版本化适配器把经过验证的 `conversation.id`、`turn.id`、事件名、状态和时间转换为结构化 `ExecutionFact`。
+
+### 目标关键实体与聚合
+
+| 聚合根/实体 | 业务身份与生命周期 | 不变量与操作入口 |
+| --- | --- | --- |
+| `RawExecutionRecord` 聚合根 | OTLP 协议身份或 `(batchId, objectIndex)`；只追加 | `acceptExecutionRecord` 幂等保存原始证据与解析任务 |
+| `CodexSession` 聚合根 | OTel `conversation.id`；运行到终态 | `applySessionFact`；终态不回退，Transcript 不得改写状态 |
+| `CodexTurn` 聚合根 | `(conversationId, turnId)`；运行到成功/失败/中断/不完整 | `applyTurnFact`；事件时间排序、状态单调、缺失终态不合成成功 |
+| `ExecutionEvent` 独立实体 | Record 协议身份；创建后不可变 | 保存业务事件类型、时间、状态和来源版本，不因到达顺序改写 |
+| `PerformanceSpan` 独立实体 | `(traceId, spanId)`；创建后不可变 | 保持父子关系、开始结束和状态；无效或负耗时不进入统计 |
+| `Transcript` 聚合根 | 安全规范 Path；generation/检查点单调演进 | `commitTranscriptBatch` 只提交完整行，Item 与检查点同事务 |
+| `TranscriptItem` 独立实体 | `(path, generation, byteOffset)`；创建后不可变 | 保存 Session/Turn/Call 候选、内容和原始证据 |
+| `TranscriptEvidenceLink` 聚合根 | 两侧身份加算法版本；`ACTIVE/STALE` | 公共 Session/Turn 身份一致才建立 `EXACT`，来源 revision 变化后重算 |
+| `ToolAlignment` 聚合根 | OTel 工具记录、Transcript Call 与算法版本 | 未验证公共调用 ID不得 `EXACT`；多候选必须 `UNMATCHED` |
+
+每个写模型聚合根使用单独、语义明确的 Repository；跨聚合只读组合使用 Query/Change Feed。Trace 至少一次消费 Execution/Transcript 变更，并在关系和 Turn Trace 同事务提交后推进自己的检查点。不存在 Hook/OTel/Transcript 三方分布式事务。
+
+代码迁移使用新的空 MySQL schema baseline `3`，表所有权与关键约束见 [MySQL 切换方案](./06-mysql-migration.md)。baseline 2 是 Hook-first 历史基线，不迁移、回填或原地改造；应用仍只校验 schema，不自动执行 DDL。
+
+以下“S2.1 问题域与限界上下文”及后续 Hook-first 实施契约是已实现历史基线，供迁移与回归追溯；与本节冲突时以本节和 S2.2 规格为目标方案，不得继续扩展历史 Hook-first 模型。
+
+## S2.1 问题域与限界上下文（Hook-first 历史基线）
+
+后端采用分层优先、层内按限界上下文组织的结构：`interfaces/<context>`、`application/<context>`、`domain/<context>`、`infrastructure/<context>`。`execution`、`transcript`、`telemetry`、`trace`、`operations` 是业务边界；Hook、JSONL、OTLP 是入站协议或证据格式，不作为可以任意跨表访问的总模块。
+
+| 上下文 | 类型 | 所有数据 | 对外发布的稳定契约 | 依赖方向 |
+| --- | --- | --- | --- | --- |
+| Execution | 核心域 | Hook 原始证据、归一化任务、Codex Session、Codex Turn、Tool Call | `ExecutionNodeQuery`、`ChangedExecutionTurnQuery` | 不依赖其他业务上下文 |
+| Transcript | 支撑域 | Transcript 文件读取生命周期、Transcript Meta、Transcript Item、UNKNOWN 结构与映射 | `TranscriptQuery`、`TranscriptItemQuery`、`ChangedTranscriptTurnQuery` | 独立发现和解析文件，不依赖 Execution |
+| Telemetry | 支撑域 | OTLP 原始对象、Telemetry Record | `TelemetryRecordQuery`、`ChangedTelemetryTurnQuery` | 不依赖 Execution 或 Trace |
+| Trace | 核心域 | Transcript Evidence Link、Telemetry Alignment、Trace 投影检查点与 Turn Trace 读模型 | `TraceViewQuery` | 消费 Execution、Transcript、Telemetry 的发布语言，不反向写入上游 |
+| Operations | 支撑域 | 采集状态和运行期指标的查询模型 | 各采集面状态 Query | 只消费其他上下文的脱敏状态摘要 |
+
+上下文关系采用“上游发布语言、下游防腐层”的方式：Execution、Transcript、Telemetry 各自独立采集和解析，分别发布只读 DTO 与单调变更序列；Trace 以 Execution 的 Hook 节点为主结果，在自己的 Application/Infrastructure 中关联 TranscriptItem 和 Telemetry Record。不得把上游聚合对象、Repository 或 MyBatis Mapper 直接注入下游 Domain。Operations 只组合状态摘要，不成为业务事实的第二所有者。日志是横切基础设施，不属于 Operations 聚合。
+
+```text
+Codex Hook -> Execution --ExecutionNode/ChangeFeed--------+
+Codex JSONL -------------------------------> Transcript ---+--> Trace --> TraceViewQuery --> HTTP
+Codex OTLP --------------------------------> Telemetry ----+
+Execution / Transcript / Telemetry --status summaries----------> Operations
+```
+
+### 统一语言与身份
+
+| 术语 | 定义与身份 | 所属上下文 | 禁止混用 |
+| --- | --- | --- | --- |
+| Codex Session | 一次 Codex conversation；业务身份为 `sessionId` | Execution | 不把包含全部 Turn 的对象图称为 Session 聚合 |
+| Codex Turn | 一次用户问题到最终状态的执行；业务身份为 `(sessionId, turnId)`，`turnId` 只在 Session 内唯一 | Execution | 不把列表行或 Trace DTO 称为 Turn 聚合 |
+| Tool Call | 一次 Hook 可观察的工具调用；身份为 `(sessionId, turnId, toolUseId)` | Execution | 不把 OTel Span 或 JSONL `callId` 直接称为 Tool Call |
+| Transcript | 一个安全发现的 JSONL 源文件；业务身份为规范 Path，拥有文件 generation、检查点和 Transcript Meta | Transcript | 不等同于 Execution Session，也不包含全部 Item 集合 |
+| Transcript Meta | 从首条已支持 `session_meta` 解析出的值对象，至少包含 `sessionId` 和适配器版本 | Transcript | 不包含 Hook 关联状态 |
+| Transcript Item | 从一条完整 JSONL 记录得到的不可变事实；身份为 `(transcriptPath, generation, byteOffset)`，保存 Path 与 Transcript Meta 的 Session ID 快照 | Transcript | 不直接创建 Execution Turn/Tool/Trace |
+| Telemetry Record | 一个不可变 OTLP log/metric/span 事实，保留信号类型和协议身份 | Telemetry | 不等同于已关联性能节点 |
+| Evidence Link | Transcript Item 到 Execution Turn/Tool 的可重算证据关系 | Trace | 不写回 Transcript Item 或 Execution 聚合 |
+| Alignment | Telemetry Record 到 Execution 节点的关联结论，包含等级、算法版本和证据 | Trace | 未验证公共 ID 不得称为 `EXACT` |
+| Turn Trace | 以 Turn 为入口组合三源证据的查询读模型 | Trace | 不是写模型聚合，也不拥有上游原始事实 |
+
+Turn 的完整身份始终是 `(sessionId, turnId)`。HTTP 在 S2.1 改为 `GET /api/sessions/{sessionId}/turns/{turnId}/analysis`，所有 Query、Change Feed、Evidence Link 和前端路由均传递复合身份；数据库不得依赖 `turnId` 单列全局唯一。相同 `turnId` 出现在不同 Session 是两个合法 Turn，任何查询都不得只按 `turnId` 任意选择一条。
+
+### 聚合与事务边界
+
+| 聚合根 | 业务命令入口 | 聚合内不变量 | 单事务边界与容量约束 |
+| --- | --- | --- | --- |
+| `CodexSession` | `applySessionFact` | 状态单调；终态不重开；保留 Hook 原始 `transcriptPath` 作为 Trace 关联证据 | 单 Session 快照，不加载 Turn 集合 |
+| `CodexTurn` | `applyTurnFact` | 状态单调；终态保护；开始/结束边界不因乱序丢失 | 单 Turn 快照，不加载 Session 或 Tool 集合 |
+| `ToolCall` | `applyToolFact` | Pre/Post 可乱序补齐；终态保护；仅非负完整边界产生估算耗时 | 单 Tool Call 快照 |
+| `RawHookEvent` | `acceptHookDelivery` | `deliveryId` 幂等；原始证据只追加 | 与对应 `HookNormalizationJob` 创建同事务 |
+| `HookNormalizationJob` | `start/complete/failNormalization` | 状态与尝试次数单调；失败类别稳定 | 单任务；一次归一化事务最多更新事件对应的 Session、Turn、Tool 三个根 |
+| `Transcript` | `observeTranscript`、`commitTranscriptBatch` | Path 是业务身份；文件代次单调；只推进至完整行；Meta 来自首条支持的 `session_meta`；Item 与检查点一起提交 | 单文件、配置上限内批次，不包含历史 Item 集合 |
+| `TranscriptItem` | `appendTranscriptItem` | `(Path, generation, byteOffset)` 幂等；保存 Path/Session ID 来源快照；内容与原始证据不可变 | 单 Item，只追加 |
+| `TelemetryRecord` | `acceptTelemetryRecord` | 协议身份或批次位置幂等；原始证据不可变 | 单 Record，只追加 |
+| `TranscriptEvidenceLink` | `linkTranscriptItemToTurn/ToolCall` | 来源 Item、目标 `(sessionId, turnId[, toolUseId])` 和算法版本幂等；等级只能来自可检查证据 | 单 Link，可删除后重算，不嵌入 Turn |
+| `TelemetryAlignment` | `alignTelemetryRecordToExecutionNode` | 目标保存完整 Session/Turn/Tool 身份、等级、字段、时间差和算法版本；无公共 ID 时禁止 `EXACT` | 单 Alignment，可删除后重算 |
+| `TraceProjectionCheckpoint` | `advanceTraceProjection` | 只在本批 Trace 读模型和链接提交后单调推进 | 单变更源/消费者检查点 |
+
+Application 可以为“一条 Hook 事实完整应用”在一个短事务中编排三个 Execution 小聚合；这不把它们合成大聚合。并发创建唯一键冲突必须令当前事务回滚，再在新事务重新读取并重放领域命令，最多重试三次。Transcript 批次只保证新增完整 Item 与 Transcript 检查点原子提交。跨上下文关联采用至少一次变更消费和幂等写入，不创建分布式事务。
+
+### 跨上下文变更契约
+
+- 每个上游变更 Query 返回 `changeSequence`、业务身份、当前 revision 和变化类别；序列只承诺在该来源内单调，不用事件时间代替消费游标。
+- 上游在更新聚合/追加 Record 的同一事务写入自己的 change log。Trace 处理一批变化时，先重算链接和 Turn Trace，再在同一 Trace 事务推进 `TraceProjectionCheckpoint`。
+- 重复投递必须得到同一链接或读模型；处理失败不推进检查点。落后、重启和乱序通过重新读取当前上游快照收敛，不依赖进程内队列保存唯一事实。
+- `ChangedTranscriptTurnQuery` 发布具有 Transcript Session ID 和已解析 Turn 候选的 Item 变化；缺少 Meta、UNKNOWN 或无 Turn 候选的记录仍保存在 Transcript，但不伪造 Execution Turn。
+- Telemetry 可以在没有 Execution Turn 时先保存。`ChangedTelemetryTurnQuery` 只发布协议中存在可用 Turn 候选的记录；其他记录保持未匹配并可在 Execution 变化后由 Trace 再评估。
+
+## Story0 持久化端口边界（历史基线）
 
 Story0 的 Repository 以聚合或独立生命周期实体命名和拆分，不使用笼统的 `Store`。`RawHookEvent` 是可追溯原始证据，`NormalizationJob` 是异步调度实体，Session、Turn、Tool 是行为骨架聚合；它们分别由 `RawHookEventRepository`、`NormalizationJobRepository`、`SessionRepository`、`TurnRepository`、`ToolRepository` 表达。虽然 Hook 接收用例在同一事务内写入原始事件和任务，但该事务编排属于 Application，不改变两个 Repository 的职责边界。
 
@@ -12,7 +138,7 @@ Story0 的 Repository 以聚合或独立生命周期实体命名和拆分，不�
 
 - `prd_and_design/prototype-v1` 保存已确认的 H5 设计基线，只用于还原需求、视觉和交互，不作为持续开发目录。
 - `frontend` 是正式 Vue 前端工程，真实 API 接入、状态管理、自动化测试和发布构建均在此演进。
-- `backend` 是 Java 服务目录，B1 已实现 JSONL 原始采集和 MyBatis 持久化；OTLP、标准化、分析和会话查询 API 在后续里程碑实施。
+- `backend` 是 Java 服务目录；S1/S2 的 Hook、Transcript、查询主链路和遗留 OTLP 骨架已经存在，S2.1 按本文定义的上下文渐进迁移，不把“代码已存在”误写成后续能力已经验收。
 - 正式前端可以在后端落地前使用合成 Mock 适配层，但组件不得依赖真实账号、本机路径或私有会话样本。
 
 参考顺序为：产品需求决定业务语义与指标口径，当前冻结的 V2 原型决定界面和交互，数据与关联模型决定 Hook/JSONL/OTel 规则，本技术设计决定工程实现。发生冲突时先修正文档并形成新原型版本，不回写已冻结的 V1 或 V2。
@@ -38,7 +164,7 @@ Story0 的 Repository 以聚合或独立生命周期实体命名和拆分，不�
 - Apache ECharts 6 作为唯一图表库，使用 custom series 构建瀑布图和时间泳道。
 - 仅在出现跨页面共享状态需求时引入 Pinia，原型阶段默认不引入。
 
-### 正式前端第一步：数据隔离与指标测试
+### 正式前端第一步：数据隔离与指标测试（历史基线）
 
 - `frontend/src/data/analyzerData.ts` 定义页面数据快照和 Vue 注入接口，应用入口选择适配器。页面不直接导入共享 Mock 文件。
 - `frontend/src/data/mockAdapter.ts` 为每个应用实例生成独立的合成数据副本；`mockData.ts` 仅保存演示样本。该快照是前端展示模型，不是后端 API 契约；后续 API 适配器负责字段转换和异步加载。
@@ -48,25 +174,21 @@ Story0 的 Repository 以聚合或独立生命周期实体命名和拆分，不�
 
 当前仍保留原型的演示限制：Trace 只有第一轮的完整样本，趋势为固定演示值，实时事件与采集状态仍含页面内演示数据。总览指标卡已按筛选后的轮次、请求和工具样本实时计算；TTFT 使用独立的请求级样本，一个轮次可以贡献多个请求，失败、取消或没有可见文本增量的请求不进入有效样本。后续需完善逐轮详情、筛选后的趋势、异步加载与错误态，再接入后端；本步骤不代表真实采集能力已经可用。
 
-## 后端模块
+## 后端上下文能力
 
-- `ingestion-jsonl`：保存既有原始记录，并对 Hook 已绑定的 transcript 执行安全校验、断点读取、JSONL 解析和内容补齐；不得以目录发现结果独立创建正式会话。
-- `ingestion-otlp`：接收 OTLP/HTTP JSON logs、metrics 和 traces。
-- `normalization`：把不同版本的输入转换为内部稳定模型。
-- `correlation`：生成跨数据源关联及其证据和可信度。
-- `analysis`：计算关键路径、统计指标和诊断结论。
-- `persistence`：MyBatis Mapper、事务和 MySQL 初始化。
-- `api`：查询接口、采集状态接口和 SSE 推送。
-- `ingestion-hooks`：接收 Codex Hook 事件并立即记录 `observedAt`，保存原始输入后再异步标准化。
-- `schema-mapping`：维护 UNKNOWN 结构指纹、受限 JSONPath 映射和按指纹重新标准化任务。
+- `execution`：Hook 接收、版本化解析、归一化任务和 Session/Turn/Tool Call 生命周期。
+- `transcript`：独立发现允许根目录内的 JSONL，维护 Transcript 的文件代次、检查点与 Meta，并生成携带 Path/Session ID 来源信息的 TranscriptItem；不得独立创建正式 Execution 对象或 Trace。
+- `telemetry`：OTLP/HTTP logs、metrics、traces 接收、版本化解析和原始 Record 保存。
+- `trace`：跨源 Evidence Link、Alignment、Turn Trace 投影、耗时守恒和诊断。
+- `operations`：采集状态、队列、处理时延和运行指标查询。
 
-模块依赖保持单向：采集模块只产生原始记录，标准化和关联失败不能阻断原始数据落库。
+各上下文内部仍遵守四层依赖。原始证据落库失败可以拒绝本来源的当前请求；后续解析或 Trace 关联失败不得回滚已经提交的其他来源事实。
 
-## 三源采集与配置
+## 三源采集与配置（Hook-first 历史基线）
 
 - Hooks 负责实时边界：会话、轮次、工具调用、审批、停止与中断；Hook 未安装、进程未运行、回调失败或能力未覆盖期间不重放历史。
 - OTel 是 API、传输和工具性能耗时的权威来源。工具耗时精度优先级为 `OTel 精确 > Hook Pre/Post 估算 > JSONL 时间戳估算`，API 与 TTFT 不用 Hook 估算替代。
-- Hook 是标准会话模型的入口。JSONL 解析任务只由已接收 Hook 的 `transcript_path` 绑定触发，用于补齐骨架内容、原始事件和 UNKNOWN；JSONL 原始行不得独立创建正式 Session、Turn 或 Tool Call。OTel 再向同一骨架补齐精确性能。
+- Hook 是标准 Execution 模型的入口。Transcript 解析不依赖 Hook：允许根目录内的 JSONL 可独立形成 Transcript 和 TranscriptItem；Trace 再以 Hook 节点的 `transcript_path/session_id/turn_id/tool_use_id` 为关联证据补齐内容。JSONL 不得独立创建正式 Session、Turn、Tool Call 或 Trace。OTel 由 Trace 关联到同一 Execution 骨架。
 - 配置向导输出配置片段与 Hook 转发脚本，用户在 `/hooks` 中检查并信任；程序不得自动编辑用户 Codex 配置。
 
 ### Hook 乱序合并
@@ -90,13 +212,13 @@ Story0 的 Repository 以聚合或独立生命周期实体命名和拆分，不�
 
 版本适配器的输入契约 fixture 位于 `prd_and_design/fixtures/hooks/codex-0.154.0/`；后端实现测试应直接消费或复制后校验这些基线。升级 Codex 时必须先用官方发布行为页和目标版本 schema 更新 fixture，再允许适配器版本前移；不得把字段在某个样本中出现等同于跨版本稳定保证。
 
-### transcript 绑定与健康
+### Transcript Meta、来源健康与 Trace 关联
 
-- Hook 的 `(session_id, transcript_path)` 建立会话到来源文件的文件级绑定；建立该绑定不读取或解析 JSONL 内容。
-- 文件级绑定必须验证非空、规范路径位于配置根目录内、目标是可读普通文件且不是符号链接。状态为 `VALID`、`EMPTY`、`MISSING`、`UNREADABLE` 或 `OUTSIDE_ROOT_OR_SYMLINK`。
-- 已知格式适配器还必须读取第一条完整 JSONL 记录，验证 `type=session_meta` 且 `$.payload.session_id` 与 Hook `session_id` 一致；扩展状态为 `SESSION_META_MISSING`、`SESSION_ID_MISMATCH` 或 `SESSION_META_UNSUPPORTED`。校验只依赖文件元数据行，不要求每条事件重复会话 ID。
-- 将具体 JSONL 行关联到 Turn、消息或工具仍需解析该行；transcript 格式不稳定时，已建立的文件级绑定仍保留，未知行进入 UNKNOWN。
-- 处理顺序为 `Hook 建立骨架 → transcript_path 文件级绑定 → JSONL 解析补齐内容 → OTel 关联精确耗时`。后到数据通过 upsert 补齐，不要求按此顺序到达。
+- Transcript 以安全规范化后的 Path 为业务身份。发现过程必须确保 Path 位于配置根目录的 `sessions` 子树内，目标是可读普通文件且任一路径分量不是符号链接；失败只形成来源健康结果，不读取正文。
+- 已知格式适配器读取首条完整 `session_meta`，把 `$.payload.session_id`、适配器版本和元数据记录位置组成 `TranscriptMeta` 值对象。后续普通行不要求重复 Session ID。
+- 每个 TranscriptItem 在创建时保存 Transcript Path、generation、byte offset 和 Session ID 来源快照，再保存自身解析出的 Turn/Call 候选、内容和原始证据。`session_meta` Item 的 Session ID 来自自身解析结果；同 generation 的后续 Item 继承 Transcript Meta。缺少或不支持 Meta 时仍保留原始 Item，但 Session ID 为空，不能进入正式 Trace 关联。
+- Trace 以 Execution 中的 Hook 节点为主，比较 Hook `transcript_path/session_id/turn_id/tool_use_id` 与 TranscriptItem 的 `path/sessionId/turnId/callId`。Path 比较必须使用 Transcript 提供的安全规范化结果，Trace 不自行访问文件系统。
+- Transcript 和 Hook 可任意顺序到达；两域独立保存事实，Trace 通过持久化 Change Feed 重算关系，不存在“先绑定再允许解析”的前置条件。
 
 ### UNKNOWN 与人工映射
 
@@ -133,7 +255,7 @@ Story0 的 Repository 以聚合或独立生命周期实体命名和拆分，不�
 - 使用来源文件、偏移和内容摘要保证重复扫描幂等。
 - 未知事件类型保留原始 JSON，不因解析失败丢弃整份文件。
 
-以上 B1 全目录扫描能力是已实现的原始采集里程碑，不是最终产品的会话发现语义。接入 Hooks 后，正式标准化与分析只消费 Hook 已绑定的 transcript；未被 Hook 引用的扫描记录只保留在原始记录检查区，不生成分析会话。
+以上 B1 全目录扫描能力是已实现的原始采集里程碑。S2.1 将其升级为独立 Transcript/TranscriptItem 解析；未被 Hook 关联的 Item 可以进入原始记录、来源健康和 UNKNOWN 检查区，但不生成 Execution 对象或正式 Trace。
 
 ## OTLP/HTTP 接收
 
@@ -176,7 +298,7 @@ MySQL 至少保存以下逻辑实体：
 ## API
 
 - `GET /api/sessions`：分页查询、筛选和慢会话排行。
-- `GET /api/sessions/{id}/analysis`：返回行为事件、性能 Span、关联关系和诊断结论。
+- `GET /api/sessions/{sessionId}/turns/{turnId}/analysis`：按完整 Turn 身份返回行为事件、性能 Span、关联关系和诊断结论。
 - `GET /api/overview`：趋势、P50/P95 和分类统计。
 - `GET /api/ingestion/status`：数据源状态、读取进度和未关联数量。
 - `POST /api/ingestion/rescan`：触发增量补扫，不删除或覆盖原始数据。
@@ -195,7 +317,9 @@ aggregates
 
 所有时间使用 Unix 毫秒值，并同时返回数据来源、精度和关联等级。
 
-## Story0 领域化架构约束
+## Story0 领域化架构约束（baseline 1 历史记录）
+
+本节记录 S0/S1/S2 已验收实现的分层基线，供回归和差异追溯；S2.1 编码后的目标命名、上下文和聚合边界以上文“S2.1 问题域与限界上下文”为准。
 
 - 后端按问题子域组织 `interfaces`、`application`、`domain`、`infrastructure` 四层；每层内部继续按 `hook-ingestion`、`hook-normalization`、`trace-query` 等业务子域拆解，不按技术类型集中目录。
 - `interfaces` 是入站适配层：HTTP Controller、定时调度器和消息入口只转换协议并调用 Application 用例。`HookNormalizationScheduler` 只负责 `@Scheduled` 调度和调用 `NormalizeHookEventUseCase`，不解析事件、不推进状态、不直接访问 Mapper。
@@ -205,7 +329,7 @@ aggregates
 - 简单标识符和时间值第一轮不机械封装为 Value Object；只有存在稳定业务不变量或跨子域行为时才引入。
 - Mapper 仅执行简单读写和数据库约束配合；状态推进、跨实体规则、跨源关联、证据和指标计算由 Java Application/Domain 层实现。
 
-## 正式实施契约
+## 正式实施契约（Hook-first 历史基线）
 
 ### Hook 安装器与 forwarder
 
@@ -230,26 +354,33 @@ aggregates
 
 ### MySQL 逻辑表
 
-- `raw_hook_event(id, delivery_id, observed_at, received_at, forwarder_version, raw_json, parse_status, error_code)`；`delivery_id` 唯一。
-- `hook_session(session_id, transcript_path, started_at, ended_at, state, last_observed_at, version)`；主键 `session_id`。
-- `hook_turn(session_id, turn_id, started_at, ended_at, state, version)`；唯一键 `(session_id, turn_id)`。
-- `hook_tool_call(session_id, turn_id, tool_use_id, tool_name, pre_observed_at, post_observed_at, state, estimated_duration_ms, duration_valid, version)`；唯一键 `(session_id, turn_id, tool_use_id)`。
-- `transcript_binding(id, session_id, configured_path, canonical_path, path_status, source_file_id, session_meta_record_id, jsonl_session_id, session_check_status, adapter_version, checked_at)`；`session_id` 唯一。
-- `jsonl_supplement(id, hook_node_type, hook_node_id, raw_record_id, content_kind, call_id, mapping_level, evidence_json, adapter_version)`；唯一键 `(hook_node_type, hook_node_id, raw_record_id, content_kind)`。
-- `unknown_fingerprint(id, fingerprint_sha256, canonical_shape, source_kind, first_seen_at, last_seen_at, occurrence_count, mapping_status)`；`fingerprint_sha256` 唯一。
-- `unknown_mapping(id, fingerprint_id, version, mapping_json, status, validation_error, created_at)`；唯一键 `(fingerprint_id, version)`。
-- `raw_otel_object(id, signal_type, trace_id, span_id, event_time, received_at, raw_json, parse_status)`；按 `(signal_type, trace_id, span_id)` 建条件唯一约束，无这些 ID 时用接收批次与对象序号幂等。
-- `performance_alignment(id, hook_node_type, hook_node_id, otel_object_id, level, evidence_json, algorithm_version, time_delta_ms)`。
+S2.1 使用新的空 schema baseline `2`，不迁移、回填或双写 baseline `1` 数据。表名前缀表达数据所有权：
 
-原始表只追加；标准化表使用乐观 `version` upsert。完整 SQL、索引和迁移编号在实现对应里程碑时落入 `backend/src/main/resources/db/migration`，但不得改变上述语义和唯一键。
+| 上下文 | 逻辑表 | 关键约束 |
+| --- | --- | --- |
+| Schema | `schema_metadata` | 只允许一条当前 baseline；应用启动只校验值为 `2`，不得自动建表、升级或清库 |
+| Execution | `execution_raw_hook_event`、`execution_normalization_job` | `delivery_id` 全值唯一；事件与任务创建同事务；原始事件只追加 |
+| Execution | `execution_session`、`execution_turn`、`execution_tool_call` | Session ID 唯一；Turn 约束 `(session_id, turn_id)`；Tool 约束 `(session_id, turn_id, tool_use_id)`；快照带乐观 `version` |
+| Execution | `execution_change` | 聚合更新同事务追加单调 `change_sequence`，供 Trace 消费 |
+| Transcript | `transcript`、`transcript_item` | Transcript Path 全值唯一并保存 Meta/检查点；Item 以 `(transcript_path, generation, byte_offset)` 幂等，并保存 Path 与 Session ID 来源快照；Item 原始证据只追加 |
+| Transcript | `transcript_unknown_fingerprint`、`transcript_unknown_item`、`transcript_unknown_mapping` | 结构指纹唯一；映射以 `(fingerprint_id, version)` 版本化 |
+| Transcript | `transcript_change` | Transcript/Item 更新同事务追加单调变更序列 |
+| Telemetry | `telemetry_record` | 优先按信号协议身份幂等；缺失时按 `(batch_id, object_index)` 幂等；原始证据只追加 |
+| Telemetry | `telemetry_change` | Record 追加同事务写入单调变更序列 |
+| Trace | `trace_transcript_evidence_link`、`trace_telemetry_alignment` | 来源、目标、算法版本幂等；保存等级、字段、时间差和证据，不修改上游事实 |
+| Trace | `trace_turn_view`、`trace_projection_checkpoint` | 每个 `(session_id, turn_id)` 一份兼容 HTTP 的读模型；每个变更源/消费者一条单调检查点 |
+
+同一上下文内部使用外键、唯一键和必要索引保障事务完整性。跨上下文表不建立对象导航，也不由一个 Mapper 联合写入；Trace 关系保存上游稳定身份与 revision，并在用例层处理来源已变化或缺失的情况。长外部 ID 和路径继续保留原文并使用 SHA-256 生成列建立大小写敏感全值索引，查询必须同时核对原文。
+
+完整 baseline 2 DDL 在 S2.1-S2 中先以失败的 schema 验证测试锁定，再一次性写入 `backend/src/main/resources/schema.sql`，后续 S3-S5 直接使用已经声明所有权的表。若后续实现证明 DDL 必须变化，必须先更新规格并递增 baseline，不能在版本值不变时静默改表。部署方显式重建空的 `codex_analyze`/`codex_analyze_test` 表结构；应用只验证 baseline，不执行 DDL。
 
 ### 幂等、乱序与事务
 
 - 原始 Hook 接收以 `delivery_id` 幂等；JSONL 延续 `(source_id, generation, byte_offset)`；OTel 优先使用 Trace/Span/Event 标识，缺失时使用批次 ID 与对象序号。
 - 标准化 worker 每次先读取原始记录，再按 `(session_id, turn_id)` 或 `(session_id, turn_id, tool_use_id)` upsert。Post 先到可建立局部工具记录，Pre 后到只补字段；终态不回退到 RUNNING。
-- Hook、JSONL、OTel 各自在独立短事务中原样落库，任何解析或关联失败不得回滚另一来源。标准化、transcript 绑定、内容补齐和性能关联分别使用可重试事务。
-- transcript 必须先通过规范路径安全检查，再读取第一条完整 JSONL；仅当 `type=session_meta` 且 `$.payload.session_id == Hook.session_id` 时允许内容补齐。ID 不一致保留两侧证据并停止挂接。
-- 工具精确补齐要求当前适配器已验证且 `Hook.tool_use_id == JSONL.call_id`；值不同最多为 `INFERRED`。同 Turn、同工具类型、时间重叠可形成候选，多个候选不得自动提升。
+- Hook、JSONL、OTel 各自在独立短事务中原样落库，任何解析或关联失败不得回滚另一来源。标准化、Transcript 解析、内容关联和性能关联分别使用可重试事务。
+- Transcript 必须先通过规范路径安全检查，再读取完整 JSONL；首条已支持 `session_meta` 形成 Transcript Meta，后续 Item 继承其 Session ID。Trace 只有在 Hook Path/Session 与 Item 来源一致时才关联；ID 或 Path 不一致保留两侧证据并保持未关联。
+- Transcript 工具精确补齐要求生产者和 transcript 适配器已验证同值契约。Codex 0.154.0 本地工具的 OTel `call_id == Transcript custom_tool_call.call_id` 已有版本化样本，可产生 `EXACT`；hosted tools、其他版本或没有共同身份的记录只能在精确 Turn 内产生 `INFERRED` 候选或保持 `UNMATCHED`。
 - 工具耗时精度为 `OTel 精确 > Hook Pre/Post 估算 > JSONL 时间戳估算`；TTFT 仅来自 OTel，缺失显示未知。
 
 ### UNKNOWN 映射执行
@@ -259,7 +390,9 @@ aggregates
 - `type`、`timestamp`、`payload.type`、`turn_id`、`call_id`、`role` 匹配数必须为 0 或 1，匹配值必须是标量；正文可以匹配多个字符串并按数组顺序连接。预览必须执行用户当前输入，不能展示硬编码结果。
 - 保存前返回每个字段的 `matchCount`、`valueType`、`preview` 和错误；存在语法、基数或类型错误时不得保存。映射保存与重新标准化分开执行，失败不覆盖上一有效版本。
 
-### 正式实施里程碑
+### 已确认功能里程碑（历史编号）
+
+以下 B2-B6/F2 是既有功能范围编号，不代表 S2.1 的编码顺序；架构迁移按 S2.1-S2 至 S5 的门禁执行，不能借迁移提前完成尚未验收的 B5/B6 能力。
 
 1. **B2 Hook 原始接收**：迁移、仅回环且禁止跨域的接收 API、forwarder、幂等和链路健康；用重复投递、非法输入、请求过大、后台异常、超时和无请求窗口测试验收，并验证所有 forwarder 结果均不以非零退出码影响 Codex。
 2. **B3 Hook 骨架**：Session/Turn/Tool upsert、单调状态和 Hook 估算耗时；Post 先到、重复终态和负耗时测试必须通过。
@@ -288,7 +421,9 @@ aggregates
 - 不得记录 Hook stdin 或 HTTP body 原文、用户问题、工具参数/结果、完整标识符、transcript 路径、认证头、数据库连接信息、异常堆栈中的原始输入或其他凭据。
 - CLI 在 forwarder 投递完成或输入无效时记录脱敏结果类别；后端在 Hook 接收结果与归一化任务失败时记录脱敏诊断。业务日志由各子域入口产生，不能为了日志将领域规则迁回 Controller、Scheduler 或 Mapper。
 
-## S2 transcript 内容补齐领域边界
+## S2 transcript 内容补齐领域边界（baseline 1 历史记录）
+
+本节保留 S2 人工验收时的代码阅读契约。S2.1 将其中跨域目标选择与 Evidence Link 迁移到 Trace，但路径安全、`session_meta`、内容可见性和关联等级等产品语义保持不变。
 
 - S2 新增 `transcript-content` 问题子域。`interfaces` 只保留定时调度和结构化状态 DTO；`application` 编排扫描、绑定校验、已知格式解析与补齐；`domain` 表达 `TranscriptBinding`、路径状态、会话校验状态、内容种类、关联等级和补齐规则；`infrastructure` 实现文件系统、Jackson 与 MyBatis 适配。
 - `TranscriptContentScheduler` 只调用 `SupplementTranscriptContentUseCase`，不得直接访问文件、Jackson 或 Mapper。原 `TranscriptWorker` 的调度、路径、解析、关联和持久化混合职责在 S2 移除。
