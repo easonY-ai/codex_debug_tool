@@ -14,7 +14,7 @@
 
 - 目的：验证 Codex OTel 能否作为 Session、Turn、Tool Call 行为与性能主来源，并直接关联 TranscriptItem，从而移除必需的 Hook 链路。
 - 版本：`codex-cli 0.154.0`，采样日期 2026-09-17 至 2026-09-21。
-- 状态：Session/Turn、本地工具和 Turn 终态的版本化证据已取得；用户已确认 hosted tool 级生命周期移出 V1.0，并登记为 V1.1 TODO，也已确认本地命令结果由 Transcript 拥有；只剩并行子执行模型待确认。
+- 状态：Session/Turn、本地工具和 Turn 终态的版本化证据已取得；用户已确认 hosted tool 级生命周期移出 V1.0、本地命令结果由 Transcript 拥有、一个模型 Tool Call 下保留多个并行 `CommandExecution` 子执行，以及审批等待耗时与诊断移至 V1.1。产品语义裁决和规格一致性门禁均已完成。
 - 安全：真实 OTLP 和 transcript 只在本机被忽略目录中处理；本文不记录真实 ID、正文、路径、凭据或错误原文。
 
 ## 业务问题
@@ -89,7 +89,7 @@ OpenAI 官方在线文档已可通过 Playwright 打开并核验；公共合同�
 | 方案 | 能力覆盖 | 优点 | 不选择的原因 |
 | --- | --- | --- | --- |
 | A Hook + OTel + Transcript | Hook 行为边界、OTel 性能、Transcript 内容 | 最大化保留已实现能力，单一来源暂时缺失时可能多一份证据 | 三套采集、两组跨源关联和冲突仲裁长期存在；Hook 无官方事件时间、不重放历史且不覆盖 hosted tools，新增证据不能弥补 OTel 缺失时的 API/TTFT 能力 |
-| B OTel + Transcript | OTel 行为与性能、Transcript 可见内容与原始记录 | 两个来源通过 Session/Turn 公共身份精确汇合；0.154.0 的本地工具模型 Call ID 也可精确关联；同时覆盖核心性能目标、历史内容和原始证据 | hosted tools 缺少单次生命周期；本地命令结果和并行子执行语义仍需显式裁决 |
+| B OTel + Transcript | OTel 行为与性能、Transcript 可见内容与原始记录 | 两个来源通过 Session/Turn 公共身份精确汇合；0.154.0 的本地工具模型 Call ID 也可精确关联；同时覆盖核心性能目标、历史内容和原始证据 | hosted tools 缺少单次生命周期，已通过 V1.0 范围裁剪处理；本地命令结果和并行子执行语义已有固定所有权 |
 | C Hook + Transcript | Hook 行为边界、Transcript 内容和时间戳估算 | 不依赖 exporter，现有实现和人工验收基础较多 | 无法提供可靠 API、TTFT、传输、父子 Span 和精确性能链，不能满足产品核心目标；Hook 对 hosted tools 和历史执行仍有缺口 |
 
 **最终选择 B：V1.0 融合 OTel + Transcript。** 用户已于 2026-09-18 确认该选择。Hook 不进入 V1.0 目标运行架构，也不作为可选兜底来源。现有 Hook、forwarder 和 Execution 实现仅在迁移完成前作为可回归、可回滚的历史实现保留，不能继续向目标模型写入第二套 Session/Turn/Tool 事实。
@@ -113,7 +113,7 @@ OpenAI 官方在线文档已可通过 Playwright 打开并核验；公共合同�
 | Session/Turn 执行存在、生命周期、终态、事件时间 | OTel | Transcript 同身份内容可挂接；身份不一致时不合并，不用 Transcript 改写 OTel |
 | API、传输、重试、Span 父子关系及经版本验证的 TTFT/精确耗时 | OTel | Transcript 时间戳只能作为内容发生时间或降级估算，不能覆盖 OTel；匿名目录本身不是本地 OTel 证据，实际 OTLP 样本可形成版本化证据 |
 | 用户输入、模型可见输出、reasoning summary、工具参数/结果、原始 JSONL | Transcript | OTel 摘要不得覆盖 Transcript 原文 |
-| Tool Call 内容身份 | Transcript `(sessionId, turnId, callId)` | 0.154.0 的模型 Call ID 已验证可 `EXACT`；并行 `CommandExecution` 的候选方案是保留为该模型调用的子项，仍待用户确认 |
+| Tool Call 内容身份 | Transcript `(sessionId, turnId, callId)` | 0.154.0 的模型 Call ID 已验证可 `EXACT`；多个并行 `CommandExecution` 保留为该模型调用的子项，父调用与子执行分别计数 |
 | 本地命令执行结果 | Transcript `CommandExecution.status/exit_code` | 用户已确认 OTel `tool_result.success` 不得覆盖命令失败；Transcript 缺失时为 `UNKNOWN` |
 | Session/Turn 跨源身份 | OTel 与 Transcript 共同校验 | 值相等才是 `EXACT`；不存在“某一侧覆盖另一侧”的修复 |
 
@@ -143,12 +143,15 @@ V1.0 以产品分析语义为验收对象，不承诺把 Hook API 逐事件、�
 
 ## 未完成交付门禁
 
-完整覆盖矩阵、验证方法与通过标准见 [V1.0 OTel + Transcript 来源覆盖可行性](./15-v1-source-coverage-feasibility.md)。F-01、F-02、F-04、F-05 已通过；F-03 已证明当前版本不满足 hosted tool 级生命周期能力。2026-09-21 用户已确认以下两项：
+完整覆盖矩阵、验证方法与通过标准见 [V1.0 OTel + Transcript 来源覆盖可行性](./15-v1-source-coverage-feasibility.md)。F-01、F-02、F-04、F-05 已通过；F-03 已证明当前版本不满足 hosted tool 级生命周期能力。2026-09-21 用户已确认以下三项：
 
 - V1.0 移除 hosted tool 级身份、状态和耗时，只保留 Turn 级影响及最终可见内容；完整生命周期登记为 V1.1 TODO。
 - OTel 拥有本地工具发生、事件时间、耗时和 trace context；Transcript `CommandExecution.status/exit_code` 拥有命令执行结果，缺失时为 `UNKNOWN`。
+- 一个模型 `custom_tool_call` 包含多个 `CommandExecution` 时，建模为一个模型 Tool Call 及其多个子执行。父调用计数为 1，子执行计数为 N；父调用耗时使用 OTel 父 Span 或经版本验证的 OTel 调用整体区间，不扁平化，也不对子执行耗时求和。
+- V1.0 只展示有证据的批准/拒绝决策；审批等待耗时为未知，对应未覆盖区间计入未归因，不生成审批等待诊断。完整审批等待能力登记为 V1.1 TODO。
 
-仍待确认：一个模型 `custom_tool_call` 包含多个 `CommandExecution` 时，是否建模为一个模型 Tool Call 及其子执行，不扁平化或重复计算耗时。
+剩余交付门禁：
+
 - 在代码迁移前完成 PRD、技术设计、数据关联、数据库与验收用例修订，并建立反映 OTel + Transcript 来源状态的 V3 原型规格。
 - Tool `EXACT` 只适用于版本化样本已验证的本地工具模型 Call ID；不得外推到 hosted tools、子 `CommandExecution.id` 或其他 Codex 版本。
 
@@ -174,7 +177,7 @@ V1.0 以产品分析语义为验收对象，不承诺把 Hook API 逐事件、�
 - 更新 `01-product-requirements.md`、`02-technical-design.md`、`03-data-and-correlation.md`、数据库迁移说明和主链路验收用例。
 - 明确问题域、实体、聚合、Repository、Query/Change Feed、事务和降级规则。
 - 若用户可见语义或交互改变，创建新原型版本；不得覆盖冻结 V2。
-- 总体来源方案选择门禁已满足；完成剩余的并行子执行语义裁决、一致性评审和 V3 原型确认后，才进入代码 Story。
+- 总体来源方案选择、四项产品语义裁决和规格一致性门禁均已满足；完成 V3 原型并经用户确认后，才进入代码 Story。
 
 ### S2.2-S4 代码迁移与回归（待启动）
 
@@ -202,10 +205,10 @@ V1.0 以产品分析语义为验收对象，不承诺把 Hook API 逐事件、�
 | OTEL-TRANSCRIPT-003 | 工具失败 | OTel 保留调用结果与时间，Transcript 命令状态保留失败事实，Turn 不被误标成功 |
 | OTEL-TRANSCRIPT-004 | 工具中断或无终态 | 保留不完整生命周期并明确降级，不合成成功终态 |
 | OTEL-TRANSCRIPT-005 | 同 Turn 同类工具串行 | 共同 ID 优先；无 ID 时顺序与时间候选可唯一解释 |
-| OTEL-TRANSCRIPT-006 | 单个模型 Tool Call 内多个命令并行 | 模型 Call ID 精确关联；待确认候选预期为命令保留为子执行，不扁平化或重复累计耗时 |
+| OTEL-TRANSCRIPT-006 | 单个模型 Tool Call 内多个命令并行 | 模型 Call ID 精确关联；命令保留为子执行，父调用/子执行计数为 1/N，父耗时不对子执行耗时求和 |
 | OTEL-TRANSCRIPT-007 | OTLP 重复、乱序、延迟 | 幂等保存并通过 Change Feed 重算后收敛 |
 | OTEL-TRANSCRIPT-008 | exporter 未配置或投递失败 | 状态显示覆盖未知/缺失，不把 transcript 估算冒充 OTel |
 
 ## 当前结论
 
-S2.2 是当前优先 Story。用户已于 2026-09-18 确认 V1.0 采用 OTel + Transcript、OTel-first：OTel 拥有核心行为遥测与性能事实，Transcript 拥有可见内容，Hook 不进入目标架构；V1.0 不承诺逐事件复刻 Hook。2026-09-21 已完成 S2.2-S2，本地 Tool `EXACT` 和 Turn 四类终态获得版本化样本证据；hosted web search 则证明当前版本不能提供可交付的 tool 级生命周期。用户已确认 hosted tool 能力移至 V1.1 TODO，并确认本地命令状态所有权；S2.2 只剩并行子执行模型待确认，确认前不进入 V3，也不删除 Hook 历史实现。
+S2.2 是当前优先 Story。用户已于 2026-09-18 确认 V1.0 采用 OTel + Transcript、OTel-first：OTel 拥有核心行为遥测与性能事实，Transcript 拥有可见内容，Hook 不进入目标架构；V1.0 不承诺逐事件复刻 Hook。2026-09-21 已完成 S2.2-S2，本地 Tool `EXACT` 和 Turn 四类终态获得版本化样本证据；hosted web search 则证明当前版本不能提供可交付的 tool 级生命周期。用户已确认 hosted tool 能力移至 V1.1 TODO、本地命令状态所有权、一个模型 Tool Call 下保留多个并行命令子执行，以及审批等待完整分析移至 V1.1。可行性和规格一致性门禁均已完成，S2.2 进入 V3 产品与原型设计；V3 确认前不删除 Hook 历史实现，也不启动代码迁移。

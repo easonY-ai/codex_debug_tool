@@ -9,10 +9,11 @@
 | `IT-OTEL-TRACE-001` | 普通回复 | 启用仅回环 OTLP exporter，产生一个无工具 Turn，等待 Transcript 增量读取并打开 Trace | OTel `conversation.id/turn.id` 建立唯一 Session/Turn；Transcript 相同身份补齐输入与最终输出；无 Hook 投递；API/TTFT 只来自 OTel |
 | `IT-OTEL-TRACE-002` | 单工具成功 | 产生一个明确工具调用，检查 OTel Tool 事件/Span 与 Transcript `call_id` | 两侧先精确落入同一 Turn；只有版本化公共调用 ID 才显示 `EXACT`，否则显示 `INFERRED/UNMATCHED`；工具耗时使用 OTel |
 | `IT-OTEL-TRACE-003` | 工具失败或中断 | 产生失败或缺失终态的工具场景 | 原始两侧证据保留；Turn/Tool 不被误标成功；缺失终态明确显示不完整 |
-| `IT-OTEL-TRACE-004` | 同类工具串行与并行 | 同 Turn 先串行、再并行执行同类工具 | 串行候选只有在类型、时间、顺序唯一时可为 `INFERRED`；并行歧义保持 `UNMATCHED` |
+| `IT-OTEL-TRACE-004` | 串行、重试与单调用内并行子执行 | 同 Turn 产生两个串行模型 Tool Call、失败后重试，以及一个包含多个并行 `CommandExecution` 的模型 Tool Call | 串行与重试按不同模型 Call ID 分开；并行场景展示一个父 Tool Call 和 N 个子执行，计数分别为 1/N，父耗时不得对子执行耗时求和；缺少已验证公共 ID 的其他候选保持 `INFERRED/UNMATCHED` |
 | `IT-OTEL-TRACE-005` | OTel 缺失 | 禁用 exporter，仅产生 Transcript | 只显示 Transcript 来源健康、原始记录和内容检查；不创建正式性能 Trace，不用 Transcript 伪造 API/TTFT |
 | `IT-OTEL-TRACE-006` | Transcript 缺失 | 启用 OTel，但关闭或阻断 Transcript 读取 | 正式执行与性能 Trace 可用，内容明确缺失；采集健康区分 OTel 成功与 Transcript 失败 |
 | `IT-OTEL-TRACE-007` | 重复、乱序与延迟 | 重放合成 OTLP 批次并延迟 Transcript Item | Execution 幂等；状态不回退；Trace 通过 Change Feed 重算收敛，节点和内容不重复 |
+| `IT-OTEL-TRACE-008` | 审批决策但无等待边界 | 输入带批准或拒绝决策、但没有可验证等待起止的版本化 OTel fixture | 展示决策、来源和事件时间；审批等待耗时为未知，未覆盖时间只计入未归因；不生成审批等待诊断 |
 
 这些用例必须使用合成 fixture 或人工本机验证，真实载荷、路径、账号和凭据不得进入仓库。`IT-OTEL-TRACE-002` 至 `004` 的工具契约未完成版本化采样前只能保持计划状态，不能用假定字段写实现测试。
 

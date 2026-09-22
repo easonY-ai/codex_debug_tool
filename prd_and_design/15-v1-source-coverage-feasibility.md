@@ -9,8 +9,9 @@
 - 阶段：需求澄清，关键技术可行性验证中。
 - 已通过：F-01 官方 OTel 合同已锁定；F-02 已用 Codex 0.154.0 验证本地工具成功、失败、串行、并行、重试和中断；F-04 已验证普通完成、API 失败、用户中断和进程异常结束；F-05 的官方配置边界、接收状态和双源组合降级最小实验已通过。2026-09-21 最新采样共 237 个 OTLP 批次，事件/指标名称与属性键已形成不含值的版本化样本契约。
 - 已确认裁决：hosted tool 级身份、状态和耗时移出 V1.0，并登记为 V1.1 TODO；本地命令结果由 Transcript `CommandExecution.status/exit_code` 拥有，缺失时为 `UNKNOWN`。
-- 待用户决策：一个模型 Tool Call 内包含多个并行 `CommandExecution` 时的父子建模仍需人工门禁确认。
-- 门禁：P0 能力全部达到“已验证覆盖”或由用户明确从 V1.0 移除后，才允许开始 V3 详细产品方案。
+- 已确认裁决：一个模型 Tool Call 内包含多个并行 `CommandExecution` 时，保留父子结构；父调用计数为 1，子执行计数为 N，父耗时不得对子执行耗时求和。
+- 已确认裁决：审批等待完整分析移至 V1.1；V1.0 只展示批准/拒绝决策，等待耗时未知并归入未归因，不生成等待诊断。
+- 门禁：P0 能力可行性、产品语义裁决和规格一致性评审均已完成，可以开始 V3 详细产品方案；V3 人工确认前不得启动正式代码迁移。
 
 ## 证据等级
 
@@ -33,10 +34,10 @@
 | P0 | Turn 身份与用户提交 | 样本 `turn.id`；官方 `codex.user_prompt`，正文默认脱敏 | `user_message.turn_id` 与正文 | `OFFICIAL + VERSIONED_SAMPLE`，身份可精确关联，正文只以 Transcript 为准 | 不依赖 OTel prompt 正文开关 |
 | P0 | 模型请求、流与性能 | 官方 API、SSE、WebSocket logs；样本含成功流、Token、`codex.turn_ttft` 和聚合 TTFT/E2E metrics | 模型可见消息与 reasoning summary | `OFFICIAL + VERSIONED_SAMPLE`，OTel 为性能权威 | 单次 TTFT 只使用带 Turn trace context 的 log/trace；Metric 只用于聚合 |
 | P0 | Turn 成功完成与最终输出 | 成功响应、失败请求、取消/中断和无终态样本 | `task_complete.last_agent_message`、`turn_aborted` 或终态缺失 | F-04 通过，可区分 `SUCCEEDED/FAILED/INTERRUPTED/INCOMPLETE` | 规则进入后续正式实现测试 |
-| P0 | 本地工具调用与结果 | `codex.tool_decision`、`codex.tool_result`、Call ID、时间和聚合 tool metrics | `custom_tool_call.call_id`；`CommandExecution.status/exit_code` | F-02 通过；模型 Call ID 可 `EXACT`；命令结果由 Transcript 拥有 | 用户确认并行子执行模型 |
+| P0 | 本地工具调用与结果 | `codex.tool_decision`、`codex.tool_result`、Call ID、时间和聚合 tool metrics | `custom_tool_call.call_id`；`CommandExecution.id/status/exit_code` | F-02 通过；模型 Call ID 可 `EXACT`；命令结果由 Transcript 拥有；并行命令保留为一个父调用下的多个子执行 | Codex 升级时回归 Call ID 与父子层级契约 |
 | 后续版本 | Hosted tools | hosted web search 可执行，但未观察到可识别的单次搜索 OTel 生命周期 | 对应 Transcript 未出现 `web_search_call` | 已从 V1.0 移除 tool 级身份、状态和耗时 | V1.1 TODO：重新验证目标版本生产者契约 |
 | P0 | exporter 缺失或投递失败 | 接收端只能知道未收到或失败，不能证明发送前丢失 | Transcript 仍可独立发现和读取 | `OFFICIAL + SYNTHETIC_FIXTURE`；配置、接收状态与双源组合降级已验证 | 正式迁移 Story 仍须实现并回归；零请求不得显示为成功 |
-| P1 | 工具审批与等待 | 官方 `codex.tool_decision` 表达批准/拒绝及配置/用户来源；等待起点、持续时间和调用身份未声明 | 工具调用内容可能存在，不保证审批边界 | 决策语义为 `OFFICIAL`，等待耗时未验证 | 验证允许、拒绝、超时和等待时长字段；无证据则 V1.0 显示未知 |
+| 后续版本 | 工具审批等待 | 官方 `codex.tool_decision` 表达批准/拒绝及配置/用户来源；等待起点、持续时间和调用身份未声明 | 工具调用内容可能存在，不保证审批边界 | V1.0 只展示决策；等待耗时未知、未覆盖区间归入未归因且不生成诊断 | V1.1 TODO：验证稳定调用身份、允许/拒绝/超时和等待起止字段 |
 | P1 | Compaction | 暂无已验证专用 OTel 事件 | Transcript 可能保存 compaction 记录 | 仅产品候选 | 增加版本化 Transcript fixture；只展示记录，不伪造 Pre/Post Hook 边界 |
 | P1 | 中断与缺失终态 | 已观察取消/中断属性、API 失败和异常退出无终态 | `turn_aborted` 或 `task_complete` 缺失 | `VERSIONED_SAMPLE`，F-04 通过 | 后续实现不得把缺失终态合成为成功 |
 | P2 | Subagent 生命周期 | 暂无已验证 OTel 事件 | 暂无版本化 Transcript 契约 | 不支持 | 若无官方/样本证据，从 V1.0 能力范围移除并在页面说明 |
@@ -73,7 +74,7 @@ F-01 已通过。通过表示官方 OTel 边界、0.154.0 已观察合同以及�
 
 - 普通成功、单工具成功、shell `exit 7` 失败、两个串行调用、两个并行 shell 子执行、失败后重试成功和用户中断均已形成本机忽略样本。
 - OTel `conversation.id`、trace context 中的 `turn.id` 分别与 Transcript Session/Turn ID 同值；模型级 `codex.tool_result.call_id` 与 Transcript `custom_tool_call.call_id` 同值，因此目标版本可建立 Tool `EXACT`。
-- 串行与重试各产生两个模型 Call ID。并行场景则是一个模型 `custom_tool_call` 包含两个 `CommandExecution` 子项；若扁平化成两个同级模型 Tool Call，会改变生产者表达的调用次数，并可能重复计算父子耗时，因此推荐保留父子结构，待用户确认。
+- 串行与重试各产生两个模型 Call ID。并行场景则是一个模型 `custom_tool_call` 包含两个 `CommandExecution` 子项；用户已确认保留父子结构。父调用按模型 Call ID 计数，子执行按自身身份计数，父调用耗时不得对子执行耗时求和。
 - shell `exit 7` 时 Transcript `CommandExecution.status=failed` 且 `exit_code=7`，对应 OTel `codex.tool_result.success=true`。因此 OTel `success` 只能解释为工具协议调用产出结果，不能解释为本地命令业务成功。
 - 用户于 2026-09-21 确认：OTel 拥有发生、事件时间、耗时和 trace context；Transcript `CommandExecution.status/exit_code` 拥有本地命令结果。Transcript 缺失时结果为 `UNKNOWN`。
 
@@ -142,4 +143,4 @@ F-01 已通过。通过表示官方 OTel 边界、0.154.0 已观察合同以及�
 
 ## 门禁结论
 
-当前双源架构选择成立，F-01、F-02、F-04、F-05 已通过。F-03 已验证 Codex 0.154.0 不能提供可交付的 hosted tool 级生命周期；用户已确认将其移出 V1.0，并登记为 V1.1 TODO，同时确认由 Transcript 命令状态拥有本地执行结果、缺失时为 `UNKNOWN`。V1.0 整体可行性只剩并行子执行父子模型待确认；确认前项目继续停留在需求澄清，不进入 V3 详细产品方案或正式业务代码迁移。
+当前双源架构选择成立，F-01、F-02、F-04、F-05 已通过。F-03 已验证 Codex 0.154.0 不能提供可交付的 hosted tool 级生命周期；用户已确认将其移出 V1.0，并登记为 V1.1 TODO，同时确认由 Transcript 命令状态拥有本地执行结果、一个模型 Tool Call 下保留多个命令子执行，以及审批等待完整分析移至 V1.1。V1.0 可行性、人工语义裁决和规格一致性门禁均已完成；项目进入 V3 原型设计，正式业务代码迁移仍不得开始。

@@ -50,11 +50,13 @@
 | Execution | `execution_session`、`execution_turn` | Session 以 `conversation_id` 唯一；Turn 以 `(conversation_id, turn_id)` 唯一；状态单调且保存 revision |
 | Execution | `execution_event`、`execution_performance_span` | Event 按协议身份幂等；Span 以 `(trace_id, span_id)` 唯一；父子关系和事件自身时间不得用接收顺序替代 |
 | Execution | `execution_change` | Execution 聚合/实体变化同事务追加单调序列 |
-| Transcript | `transcript`、`transcript_item`、UNKNOWN 相关表、`transcript_change` | 延续 Path/generation/byte offset 幂等、Meta Session ID 和内容侧 Turn/Call 候选 |
-| Trace | `trace_transcript_evidence_link`、`trace_tool_alignment` | 两侧身份、revision、等级和算法版本幂等；未验证公共工具 ID 时禁止 `EXACT` |
+| Transcript | `transcript`、`transcript_item`、`transcript_command_execution`、UNKNOWN 相关表、`transcript_change` | 延续 Path/generation/byte offset 幂等、Meta Session ID 和内容侧 Turn/Call 候选；命令子执行以 Path、generation、来源 Item offset 和 execution ID 保持父子层级与结果事实 |
+| Trace | `trace_transcript_evidence_link`、`trace_tool_alignment` | 两侧身份、revision、等级和算法版本幂等；未验证公共工具 ID 时禁止 `EXACT`；一个模型 Tool Call 可关联多个命令子执行，不扁平化 |
 | Trace | `trace_turn_view`、`trace_projection_checkpoint` | 每个 `(conversation_id, turn_id)` 一份读模型；关系与读模型提交后才推进检查点 |
 
 baseline 3 不包含 `execution_raw_hook_event`、Hook normalization job 或 Hook `tool_use_id` 作为目标业务身份。现有表只能随 baseline 2 代码保留作回滚，不能在 baseline 3 中以“兼容字段”继续写入。DDL、索引、外键和容量上限在新的代码迁移 Story 中先由失败测试锁定，再由用户显式重建空测试库；本轮技术方案决策不执行数据库操作。
+
+baseline 3 的计数和耗时约束同时锁定：模型 Tool Call 按已验证的模型 Call ID 计数，`CommandExecution` 按子执行身份计数；父 Tool Call 耗时保存 OTel 父 Span 或经版本验证的 OTel 调用整体区间，不保存“子执行耗时求和”作为父耗时。具体列、外键及删除策略仍须在代码迁移 Story 的失败测试和文件/表级迁移清单中确认。
 
 ## 验证要求
 

@@ -46,4 +46,4 @@
 
 ## 当前里程碑
 
-Hook-first 能力原型 V2 已确认并作为历史基线冻结，但目标数据源方案已升级。根据可行性先行规则，项目当前仍处于“需求澄清（V1.0 双源覆盖验证）”阶段。E0-S0、E1-S1、E1-S1.1 和 E1-S2 均已完成并由用户接受；E1-S2.1 的 Hook-first Execution 重构已完成代码及 61 项自动测试，但暂停人工验收。当前 Story E1-S2.2 的 V1.0 方案已经用户确认：融合 OTel + Transcript，并以 OTel 为核心行为遥测与性能来源。F-01、F-02、F-04、F-05 已通过；2026-09-21 最新 237 个 OTLP 批次证明本地工具模型 Call ID 可精确关联，并覆盖成功、失败、中断和缺失终态。用户已确认 hosted tool 级身份、状态和耗时移出 V1.0，并登记为 V1.1 TODO，同时确认本地命令结果由 Transcript `CommandExecution.status/exit_code` 拥有。进入 V3 前仅剩并行子执行模型需要人工确认。
+Hook-first 能力原型 V2 已确认并作为历史基线冻结，但目标数据源方案已升级。E0-S0、E1-S1、E1-S1.1 和 E1-S2 均已完成并由用户接受；E1-S2.1 的 Hook-first Execution 重构已完成代码及 61 项自动测试，但暂停人工验收。当前 Story E1-S2.2 的 V1.0 方案已经用户确认：融合 OTel + Transcript，并以 OTel 为核心行为遥测与性能来源。F-01、F-02、F-04、F-05 已通过；2026-09-21 最新 237 个 OTLP 批次证明本地工具模型 Call ID 可精确关联，并覆盖成功、失败、中断和缺失终态。用户已确认 hosted tool 级身份、状态和耗时移出 V1.0；本地命令结果由 Transcript `CommandExecution.status/exit_code` 拥有；一个模型 Tool Call 下的多个并行 `CommandExecution` 保留为子执行，父调用计数为 1、子执行计数为 N，父耗时不得对子执行耗时求和；审批只展示有证据的决策，等待耗时与诊断移至 V1.1。S2.2 可行性和规格一致性门禁已经完成，项目下一阶段是 V3 详细产品与原型设计；V3 人工确认前不得启动业务代码迁移。

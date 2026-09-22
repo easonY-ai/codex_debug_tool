@@ -25,7 +25,9 @@
 
 V1.0 不把“采用 OTel + Transcript”解释为“两源是 Hook 的无损超集”。官方 OTel events/metrics、目标版本真实 OTLP 样本与 Transcript 已支持记录构成 V1.0 能力边界；匿名指标目录本身不证明本地 OTLP 可得，真实样本可以形成 `VERSIONED_SAMPLE` 证据。Metrics 仍不能创建单次 Execution Event。Hook 特有事件若没有等价证据，不进入规范化模型；正式编码前必须建立 Hook 事件到 OTel event/log/span、TranscriptItem 或“不支持”的覆盖矩阵，并用该矩阵驱动 V3 页面缺失态。
 
-本地工具级与 Turn 终态样本已经取得。用户于 2026-09-21 确认：hosted tool 级身份、状态和耗时移出 V1.0，并登记为 V1.1 TODO；本地命令结果由 Transcript `CommandExecution.status/exit_code` 独占，缺失时为 `UNKNOWN`。并行 `CommandExecution` 的聚合建模仍待用户确认；确认前不启动代码迁移。
+本地工具级与 Turn 终态样本已经取得。用户于 2026-09-21 确认：hosted tool 级身份、状态和耗时移出 V1.0，并登记为 V1.1 TODO；本地命令结果由 Transcript `CommandExecution.status/exit_code` 独占，缺失时为 `UNKNOWN`；一个模型 `custom_tool_call` 包含多个并行 `CommandExecution` 时，保留一个模型 Tool Call 及其多个子执行，不扁平化为多个同级 Tool Call；审批只展示已验证的批准/拒绝决策，等待耗时与诊断移至 V1.1。父调用按模型 Call ID 计数，子执行按自身身份计数；父耗时使用父 Span 或整体区间，不对子执行耗时求和。产品语义裁决和规格一致性门禁均已完成，下一步是 V3 详细产品与原型设计，不启动代码迁移。
+
+审批决策由版本化 OTel 适配器转换为 `ToolDecisionFact`，只保存决定、来源、事件时间和已有身份。Codex 0.154.0 未验证等待起点、持续时间和稳定工具调用身份，因此 Execution 不创建审批等待 Span，Trace 不计算审批等待耗时；Turn 中无法归因的对应区间继续归入 `UNATTRIBUTED`。V1.1 若取得直接契约证据，必须重新设计身份、生命周期、耗时守恒和诊断规则，不能用决策时间倒推等待开始时间。
 
 ### 目标问题域与上下文
 
@@ -55,12 +57,14 @@ Execution 使用业务语言，不把 Session/Turn 聚合命名为 OTel 聚合�
 | `CodexTurn` 聚合根 | `(conversationId, turnId)`；运行到成功/失败/中断/不完整 | `applyTurnFact`；事件时间排序、状态单调、缺失终态不合成成功 |
 | `ExecutionEvent` 独立实体 | Record 协议身份；创建后不可变 | 保存业务事件类型、时间、状态和来源版本，不因到达顺序改写 |
 | `PerformanceSpan` 独立实体 | `(traceId, spanId)`；创建后不可变 | 保持父子关系、开始结束和状态；无效或负耗时不进入统计 |
+| `ModelToolCall` 独立实体 | `(conversationId, turnId, callId)`；由目标版本已验证的 OTel 工具事实建立 | 调用发生、事件时间、父 Span 和整体耗时由 OTel 拥有；终态缺失不合成成功；未经版本验证的 Call ID 不产生 `EXACT` |
 | `Transcript` 聚合根 | 安全规范 Path；generation/检查点单调演进 | `commitTranscriptBatch` 只提交完整行，Item 与检查点同事务 |
 | `TranscriptItem` 独立实体 | `(path, generation, byteOffset)`；创建后不可变 | 保存 Session/Turn/Call 候选、内容和原始证据 |
+| `CommandExecution` 独立实体 | `(path, generation, sourceItemOffset, executionId)`；作为 Transcript 模型 Tool Call 的子执行证据 | `status/exitCode` 是本地命令结果权威；缺失时为 `UNKNOWN`；多个子执行不改变父 Tool Call 计数 |
 | `TranscriptEvidenceLink` 聚合根 | 两侧身份加算法版本；`ACTIVE/STALE` | 公共 Session/Turn 身份一致才建立 `EXACT`，来源 revision 变化后重算 |
 | `ToolAlignment` 聚合根 | OTel 工具记录、Transcript Call 与算法版本 | 未验证公共调用 ID不得 `EXACT`；多候选必须 `UNMATCHED` |
 
-每个写模型聚合根使用单独、语义明确的 Repository；跨聚合只读组合使用 Query/Change Feed。Trace 至少一次消费 Execution/Transcript 变更，并在关系和 Turn Trace 同事务提交后推进自己的检查点。不存在 Hook/OTel/Transcript 三方分布式事务。
+每个写模型聚合根使用单独、语义明确的 Repository；跨聚合只读组合使用 Query/Change Feed。Trace 以已验证的模型 Call ID 把 Execution 的 `ModelToolCall` 与 Transcript 的内容及 `CommandExecution` 证据组成父子读模型，不把两侧写实体合成大聚合。Trace 至少一次消费 Execution/Transcript 变更，并在关系和 Turn Trace 同事务提交后推进自己的检查点。不存在 Hook/OTel/Transcript 三方分布式事务。
 
 代码迁移使用新的空 MySQL schema baseline `3`，表所有权与关键约束见 [MySQL 切换方案](./06-mysql-migration.md)。baseline 2 是 Hook-first 历史基线，不迁移、回填或原地改造；应用仍只校验 schema，不自动执行 DDL。
 
@@ -174,7 +178,7 @@ Story0 的 Repository 以聚合或独立生命周期实体命名和拆分，不�
 
 当前仍保留原型的演示限制：Trace 只有第一轮的完整样本，趋势为固定演示值，实时事件与采集状态仍含页面内演示数据。总览指标卡已按筛选后的轮次、请求和工具样本实时计算；TTFT 使用独立的请求级样本，一个轮次可以贡献多个请求，失败、取消或没有可见文本增量的请求不进入有效样本。后续需完善逐轮详情、筛选后的趋势、异步加载与错误态，再接入后端；本步骤不代表真实采集能力已经可用。
 
-## 后端上下文能力
+## 后端上下文能力（Hook-first 历史基线）
 
 - `execution`：Hook 接收、版本化解析、归一化任务和 Session/Turn/Tool Call 生命周期。
 - `transcript`：独立发现允许根目录内的 JSONL，维护 Transcript 的文件代次、检查点与 Meta，并生成携带 Path/Session ID 来源信息的 TranscriptItem；不得独立创建正式 Execution 对象或 Trace。

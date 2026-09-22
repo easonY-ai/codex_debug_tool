@@ -10,14 +10,14 @@ OTel 是 Session/Turn 生命周期、状态、事件时间、Span 父子关系�
 
 | 事实或关系 | 唯一所有者 | 可发布内容 | 禁止行为 |
 | --- | --- | --- | --- |
-| OTLP 原始对象、Session/Turn 执行事实和 Telemetry Record | Telemetry | 按复合 Turn 身份查询的执行/性能 Record、单调变更序列 | 根据 Transcript 猜测 OTel 生命周期或在本域决定跨源关联等级 |
+| OTLP 原始对象、Session/Turn/Model Tool Call 执行事实和性能 Span | Execution | 按复合 Turn 身份查询的执行/性能事实、单调变更序列 | 根据 Transcript 猜测 OTel 生命周期或在本域决定跨源关联等级 |
 | Transcript 文件、Meta、检查点、Item、UNKNOWN | Transcript | 按 Path/Session/Turn 候选查询的 Transcript 和 Item、单调变更序列 | 覆盖 OTel 执行状态、Span 或性能字段 |
 | Transcript Evidence Link、Tool Alignment、Turn Trace | Trace | 面向 API 的 Trace 读模型 | 修改两种来源事实，或把读模型当成写聚合 |
 | 采集状态和运行指标摘要 | Operations | 脱敏健康状态 | 成为原始事件或业务生命周期的第二所有者 |
 
 跨上下文传递稳定身份、revision、来源类型和必要摘要，不传递聚合对象。每个上游在保存业务变化的同一事务追加 `changeSequence`；Trace 以至少一次方式消费，重复变化必须幂等，只有链接和 Turn Trace 读模型成功提交后才推进自己的消费检查点。到达时间、事件时间和数据库自增 ID 均不能冒充跨来源公共 ID。
 
-Transcript 独立完成路径安全、文件身份、`session_meta` 和 Item 解析，不消费 Telemetry 声明。Trace 从 Telemetry 获得 OTel `conversation.id/turn.id`、事件/Span 身份与性能事实，从 Transcript 获得 Item 的 `path/sessionId/turnId/callId`，并在自己的策略中建立 Evidence Link。Trace 不重新解释任一来源协议，Transcript 也不查询 Telemetry 表选择目标。
+Transcript 独立完成路径安全、文件身份、`session_meta` 和 Item 解析，不消费 Execution 声明。Trace 从 Execution 获得 OTel `conversation.id/turn.id`、事件/Span/Model Tool Call 身份与性能事实，从 Transcript 获得 Item 的 `path/sessionId/turnId/callId` 和 `CommandExecution` 子执行证据，并在自己的策略中建立 Evidence Link。Trace 不重新解释任一来源协议，Transcript 也不查询 Execution 表选择目标。
 
 ## 标识符命名空间
 
@@ -77,12 +77,14 @@ JSONL 内部可以通过 `turn_id`、`call_id` 等字段建立可靠关系。事
 
 已验证适配器可以在同一 Transcript Path/Session 下，按完全相同的 JSONL `call_id` 配对工具调用与工具结果。Trace 先用公共 Session/Turn 身份把整组内容限定到精确 Turn；其他内部 `turn_id` 仅作为 Transcript 原始证据保留。Codex 0.154.0 本地工具的 OTel `call_id` 已验证与模型级 `custom_tool_call.call_id` 同值，可以产生 `EXACT`；hosted tools、其他版本或没有已验证公共身份的记录，只能用类型、事件时间和顺序产生 `INFERRED` 候选，零个或多个候选保持未链接，不能选择时间最近者。
 
+一个模型 `custom_tool_call` 可以包含多个 `CommandExecution`。目标读模型保留一个 `ModelToolCall` 父节点和多个命令子执行：父节点按模型 Call ID 计数，子执行按 `(transcriptPath, generation, sourceItemOffset, executionId)` 计数；每个子执行保留自己的 `status`、`exitCode` 和内容侧时间区间。父 Tool Call 的正式性能耗时取 OTel 父 Span或经版本验证的 OTel 调用整体区间，不对子执行耗时求和；失败后重试产生新的模型 Call ID，不与单次调用内的并行子执行合并。
+
 ## Trace 关联重算与证据生命周期
 
-- `TranscriptEvidenceLink` 和 `ToolAlignment` 是 Trace 拥有的可重算关系，不嵌入 Transcript 或 Telemetry 聚合，也不写回上游 Record。
+- `TranscriptEvidenceLink` 和 `ToolAlignment` 是 Trace 拥有的可重算关系，不嵌入 Transcript 或 Execution 聚合，也不写回上游事实。
 - 每条关系至少保存两侧稳定身份与 revision、等级、使用字段、算法版本、创建/更新时间；时间关联另保存时间差或重叠证据。
 - 上游 revision 变化、适配器/算法版本升级或目标消失时，Trace 先使旧关系失效，再按同一 Turn 重算；API 只返回当前有效版本，原关系可保留为审计证据。
-- Transcript Item 或 Telemetry Record 先到都允许。缺少另一侧时保留未匹配状态；后续任一相关变更都会重新触发该 Turn 的候选评估。
+- Transcript Item 或 Execution Record 先到都允许。缺少另一侧时保留未匹配状态；后续任一相关变更都会重新触发该 Turn 的候选评估。
 - 一个来源命中多个候选时保持 `UNMATCHED` 并返回候选数量；不得为了让页面完整而选择最接近项。
 
 ## OTel：性能调用链
@@ -91,7 +93,7 @@ OTel 回答“发生了什么、当前状态是什么、时间花在哪里”。
 
 - API 和传输请求耗时。
 - 流事件、Token 计数，以及有版本证据时的 TTFT、推理时间和 Token 间隔。
-- 工具批准/拒绝决策与工具执行耗时；审批等待起点和持续时间仍需版本样本证明。
+- 工具批准/拒绝决策与工具执行耗时。Codex 0.154.0 尚未证明审批等待起点、持续时间和稳定调用身份；V1.0 只保留决策事实，等待耗时为未知，对应未覆盖区间归入未归因。
 - 重试、失败和传输回退。
 - OTel `trace_id`、`span_id` 和父子关系。
 
@@ -103,6 +105,7 @@ OTel Trace 内部的父子关系是性能链路的权威来源。OTel Log 用来
 - OTel 的 `trace_id` 和 `span_id` 通常不写入 JSONL。
 - 一个 OTel 行为节点可能由多个 JSONL 行补齐，一个 Transcript Tool Call 也可能对应多个 OTel 请求、事件或 Span。
 - 一个工具行为可能拆成审批、执行和子进程等多个性能阶段。
+- 审批决策事件不能冒充审批等待 Span，也不能用决策时间和相邻工具时间反推等待开始；完整审批等待关联与耗时分析属于 V1.1。
 - 同名并行工具仅靠时间和工具名无法消除歧义。
 - OTel 异步批量发送会影响到达顺序，但不是关联困难的根因；应使用事件自身时间，而不是接收时间。
 
@@ -166,4 +169,4 @@ JSONL 可以估算工具用了约 30 秒，但最初 6 秒和最后 6 秒无法�
 
 ## 诊断原则
 
-关键路径优先基于 OTel Trace 计算；没有 OTel 时才使用 JSONL 估算区间。并行区间不能重复累计。诊断结果必须附带来源和可信度，低可信度结论使用“可能”“疑似”等表达。
+关键路径和正式性能诊断只基于 OTel Trace 计算，并行区间不能重复累计。没有 OTel Session/Turn 骨架时不创建正式 Trace，也不使用 JSONL 时间戳生成性能诊断；Transcript 检查区可以展示内容侧时间区间，但必须明确它不是 API、TTFT、父子 Span 或正式工具性能。诊断结果必须附带来源和可信度，证据不足时显示数据缺失，不生成确定性结论。
