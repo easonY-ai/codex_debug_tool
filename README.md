@@ -2,16 +2,16 @@
 
 用于分析本机 Codex 执行过程与性能瓶颈的可视化工具。
 
-当前已把评审通过的 H5 原型冻结为设计基线；正式前端通过本机 API 读取 Hook、transcript 与 OTel 数据，不在生产入口加载 Mock 数据。
+当前 V1.0 的 OTel + Transcript H5 原型用于需求评审；正式代码仍处于 Hook-first 历史实现，OTel-first 迁移 Story 尚未启动。
 
 ## 目录
 
 - `prd_and_design/`：产品需求、技术方案、数据关联规则和原型基线说明。
-- `prd_and_design/prototype-v1/`：可独立运行的冻结原型源码，只用于确认 UI、交互和产品语义。
+- `prd_and_design/prototype-v1/`：可独立运行的 V1.0 原型源码，同一需求版本的迭代由 Git 历史管理。
 - `frontend/`：正式前端代码线，后续在这里接入真实 API、完善测试并生成发布产物。
 - `backend/`：Java 17 本机服务，提供 Hook、JSONL/transcript、OTLP 采集，跨源关联、分析查询、UNKNOWN 映射与 SSE。
 
-需求口径以 PRD 为准，界面与交互以冻结原型为准；实现发现冲突时先更新需求并形成新的原型版本，不能直接改写 V1。
+需求口径以 PRD 为准，界面与交互以当前原型规格为准；发现冲突时先更新需求与原型规格，再迭代对应版本的原型。
 
 ## 运行正式前端
 
@@ -27,15 +27,15 @@ npm run dev
 
 后端构建与运行见 [后端说明](./backend/README.md)。使用 JDK 17 执行 `./package.sh` 生成内嵌正式前端的可执行 JAR；默认关闭真实目录采集，需显式配置后启用。
 
-## 运行冻结原型
+## 运行 V1.0 原型
 
 ```bash
 cd prd_and_design/prototype-v1
-npm ci
+npm install
 npm run dev
 ```
 
-冻结原型与正式前端默认使用同一端口，请不要同时启动。
+原型默认使用 `http://127.0.0.1:4174/`，与正式前端端口不同。
 
 ## 知识库
 

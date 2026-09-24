@@ -20,14 +20,13 @@
 14. [OTel + Transcript 数据源方案升级 Story 规格](./14-otel-only-feasibility.md)：E1-S2.2 的方案对比、采样证据、最终来源裁决、Story 拆分和决策门禁。
 15. [V1.0 OTel + Transcript 来源覆盖可行性](./15-v1-source-coverage-feasibility.md)：进入 V3 详细产品方案前的能力覆盖矩阵、关键技术卡点、验证方法和通过标准。
 16. [S2.2 可信性分析与关键技术方案选型报告](./16-s2.2-credibility-and-technical-selection.md)：可独立恢复上下文的证据分级、真实样本结论、方案对比、已确认裁决、剩余风险和续接顺序。
-17. [V3 OTel + Transcript 原型规格](./17-v3-prototype-spec.md)：V3 页面结构、双源证据交互、演示场景与人工评审用例。
+17. [V1.0 OTel + Transcript 原型规格](./17-v1-prototype-spec.md)：V1.0 页面结构、双源证据交互、二维 Trace 时间轴与人工评审用例。
 
 ## 已确认决策
 
 - 产品是运行在本机的 Web 应用，仅监听回环地址。
 - 覆盖本机 Codex Desktop、CLI 和 IDE 产生的会话。
-- Vue H5 原型 V1 已冻结在 `prototype-v1`，不接入真实数据。
-- Hook-first 采集与兼容性方案 V2 已确认，冻结在 `prototype-v2`；正式前后端按该版本进入编码。
+- 当前 V1.0 OTel + Transcript 原型位于 `prototype-v1`，不接入真实数据；旧 Hook-first V1/V2 与早期 OTel-first V3 原型由 Git 历史保留，不再并存目录。
 - 正式前端代码线位于 `../frontend`，后续真实功能只在该目录实现。
 - 原型确认后才开发 Java 后端；正式前端在后端可用前允许暂时保留 Mock 数据适配层。
 - 后端采用 Java 17、Spring Boot、MyBatis；数据库使用本机 MySQL，配置与验收见 MySQL 切换方案。
@@ -42,9 +41,9 @@
 - 新的架构选择写入技术设计，并记录替代方案及选择原因。
 - 数据字段或关联规则变化必须同步更新数据与关联模型。
 - 原型范围变化必须同步更新原型规格和验收清单。
-- 已冻结的原型目录只读；产品或交互变化需要先更新需求，再创建新的原型版本，不能覆盖 V1。
+- 产品或交互变化先更新 PRD 和原型规格，再直接迭代对应产品版本的原型；Git 历史保留旧评审版本。
 - 示例数据始终使用虚构内容，不从真实 Codex 会话复制或改写。
 
 ## 当前里程碑
 
-Hook-first 能力原型 V2 已确认并作为历史基线冻结，但目标数据源方案已升级。E0-S0、E1-S1、E1-S1.1 和 E1-S2 均已完成并由用户接受；E1-S2.1 的 Hook-first Execution 重构已完成代码及 61 项自动测试，但暂停人工验收。E1-S2.2 的 V1.0 方案已确认：融合 OTel + Transcript，以 OTel 为核心行为遥测与性能来源。F-01、F-02、F-04、F-05 已通过；2026-09-21 的 237 个 OTLP 批次证明本地工具模型 Call ID 可精确关联，并覆盖成功、失败、中断和缺失终态。Hosted tool 级身份、状态和耗时移出 V1.0；本地命令结果由 Transcript `CommandExecution.status/exit_code` 拥有；并行 `CommandExecution` 保留为模型 Tool Call 的子执行，父调用计数为 1、子执行计数为 N，父耗时不得对子执行耗时求和；审批只展示有证据的决策，等待耗时与诊断移至 V1.1。S2.2 可行性、规格一致性和 V3 原型人工门禁均已完成；用户于 2026-09-24 确认 `17-v3-prototype-spec.md` 和 `prototype-v3`。当前进入技术方案设计，下一步按顺序拆分并启动 OTel-first 迁移 Story，具体细节在对应 Story 调整；正式代码迁移尚未启动。
+Hook-first 能力原型 V2 曾获确认，现由 Git 历史保留。E0-S0、E1-S1、E1-S1.1 和 E1-S2 均已完成并由用户接受；E1-S2.1 的 Hook-first Execution 重构已完成代码及 61 项自动测试，但暂停人工验收。E1-S2.2 的 V1.0 方案已确认：融合 OTel + Transcript，以 OTel 为核心行为遥测与性能来源。F-01、F-02、F-04、F-05 已通过；2026-09-21 的 237 个 OTLP 批次证明本地工具模型 Call ID 可精确关联，并覆盖成功、失败、中断和缺失终态。Hosted tool 级身份、状态和耗时移出 V1.0；本地命令结果由 Transcript `CommandExecution.status/exit_code` 拥有；并行 `CommandExecution` 保留为模型 Tool Call 的子执行，父调用计数为 1、子执行计数为 N，父耗时不得对子执行耗时求和；审批只展示有证据的决策，等待耗时与诊断移至 V1.1。原 V3 原型人工门禁于 2026-09-24 完成，现将该 OTel-first 原型作为产品 V1.0 的 `prototype-v1` 持续迭代；二维 Trace 时间轴待人工评审。当前仍处于技术方案设计，迁移 Story 尚未拆分，正式代码迁移尚未启动。

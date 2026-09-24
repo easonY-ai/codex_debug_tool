@@ -17,6 +17,8 @@ OTel 是 Session/Turn 生命周期、状态、事件时间、Span 父子关系�
 
 跨上下文传递稳定身份、revision、来源类型和必要摘要，不传递聚合对象。每个上游在保存业务变化的同一事务追加 `changeSequence`；Trace 以至少一次方式消费，重复变化必须幂等，只有链接和 Turn Trace 读模型成功提交后才推进自己的消费检查点。到达时间、事件时间和数据库自增 ID 均不能冒充跨来源公共 ID。
 
+Execution 的业务聚合为 Session、Turn 和模型 Tool Call。归一化的 OTel 离散事件与 Span 区间分别作为 `TurnEvent`、`TimedOperation` 查询证据保存，不是必须附属于 Tool Call 的领域实体或聚合根。`TurnEvent` 是可验证 Turn 内的时间点事实，包含工具事件、用户提交和模型请求事件，不表示“除工具外的操作”；`TimedOperation` 是有起止时间的 Span。OTLP Span 的内嵌事件直接属于该 Span；独立 LogRecord 只有携带可匹配的 `traceId/spanId` 或已验证共同业务身份时才与 Span 关联。Span 可先独立保存，只有已验证 Turn 身份才进入正式 Trace；在 Turn 内，模型请求或传输 Span 可关联请求，工具 Span 只有已验证模型调用身份才关联 Model Tool Call，也可能只保留 Turn 归属。时间相近和共同 traceId 均不足以分配 Tool Call。没有 Turn 身份的 Span 只留来源检查，不进入正式 Trace。原始 OTLP 对象始终保留；表的独立性不等于 DDD 聚合独立性。具体协议模型、条件性案例和父子 Span 判定见技术设计“OTel 原生关系与业务关联判定”。
+
 Transcript 独立完成路径安全、文件身份、`session_meta` 和 Item 解析，不消费 Execution 声明。Trace 从 Execution 获得 OTel `conversation.id/turn.id`、事件/Span/Model Tool Call 身份与性能事实，从 Transcript 获得 Item 的 `path/sessionId/turnId/callId` 和 `CommandExecution` 子执行证据，并在自己的策略中建立 Evidence Link。Trace 不重新解释任一来源协议，Transcript 也不查询 Execution 表选择目标。
 
 ## 标识符命名空间

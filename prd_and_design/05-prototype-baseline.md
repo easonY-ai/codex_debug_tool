@@ -1,10 +1,12 @@
 # 原型设计基线
 
+> 本文记录 2026-09-11 至 2026-09-14 的 Hook-first V1/V2 历史评审。用户于 2026-09-24 改用 Git 历史管理旧原型，旧目录已从当前工作树移除；现在的 `prototype-v1` 是产品 V1.0 的 OTel + Transcript 原型，不能用本文的旧路径或运行命令解释其设计。当前规格见 [V1.0 原型规格](./17-v1-prototype-spec.md)。
+
 ## 基线信息
 
 - 版本：V1。
 - 冻结日期：2026-09-11。
-- 源码目录：[`./prototype-v1`](./prototype-v1/README.md)。
+- 当时源码目录：`prototype-v1`；旧版本从 Git 历史检出。
 - 定位：产品需求、信息架构、视觉层级和交互行为的可运行参考，不是线上数据采集实现。
 - 数据：仅使用人工构造的 Mock 数据，不读取本机 Codex 数据，不发送 OTLP，不写入数据库。
 
@@ -35,15 +37,12 @@ V1 包含分析总览、一轮对话 Trace 详情、当前会话和采集状态�
 
 ## 冻结与变更规则
 
-- `prototype-v1` 视为只读快照，后续功能开发只修改仓库根目录下的 `frontend`。
-- 产品语义、指标口径或交互发生变化时，先更新 PRD 和原型规格，再复制出 `prototype-v2` 进行评审。
-- 新版本确认后再把差异实现到正式前端；不得覆盖或补写 V1 来伪造历史基线。
-- V1 目录不提交 `node_modules`、`dist`、本机配置、真实会话或任何账号凭据。
-- Git 提交或版本标签由维护者单独执行；目录冻结本身不隐含已经创建 Git 标签。
+- 当时通过独立目录冻结 V1/V2；现行规则改为同一需求版本直接迭代相应原型目录，旧评审状态使用 Git 历史追溯。
+- 正式前端功能仍只在 `frontend` 实现；原型不得提交依赖、构建产物、本机配置、真实会话或凭据。
 
 ## V2 已确认基线
 
-- 源码目录：[`./prototype-v2`](./prototype-v2/README.md)。
+- 当时源码目录：`prototype-v2`；旧版本从 Git 历史检出。
 - 确认日期：2026-09-14。
 - V2 从冻结 V1 复制，确认为 Hook-first 设计：Hook 建立骨架，JSONL 补齐内容，OTel 补齐性能；同时包含 transcript/session_meta 健康、UNKNOWN 映射、实时会话和 Trace 三源证据；V1 保持不变。
 - V2 仍只使用虚构 Mock 数据，不连接 Codex、不读取 JSONL、不监听 Hook/OTLP、不写数据库。
@@ -57,12 +56,6 @@ V1 包含分析总览、一轮对话 Trace 详情、当前会话和采集状态�
 - 不包含后端 API、SQLite、Hook 接收、transcript 内容补齐、OTLP/HTTP 接收器、SSE 或真实权限边界。
 - 响应式布局用于能力验证，正式前端仍需补充组件拆分、测试、错误态和可访问性验证。
 
-## 运行与复现
+## 历史复现
 
-```bash
-cd prd_and_design/prototype-v1
-npm ci
-npm run dev
-```
-
-默认访问 `http://127.0.0.1:4173/`。可使用 `npm run build` 验证生产构建。原型与正式前端使用相同默认端口，不应同时启动。
+使用 `git log --all -- prd_and_design/prototype-v1 prd_and_design/prototype-v2` 定位旧评审提交，在独立工作树检出对应版本。当前 V1.0 原型的运行方式见 [`prototype-v1/README.md`](./prototype-v1/README.md)。

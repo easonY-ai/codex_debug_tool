@@ -48,7 +48,7 @@
 | Schema | `schema_metadata` | 唯一记录必须精确为 `3`；应用只校验，不自动建表、升级或清库 |
 | Execution | `execution_raw_record`、`execution_normalization_job` | OTLP 协议身份或 `(batch_id, object_index)` 幂等；原始证据只追加；记录与任务同事务创建 |
 | Execution | `execution_session`、`execution_turn` | Session 以 `conversation_id` 唯一；Turn 以 `(conversation_id, turn_id)` 唯一；状态单调且保存 revision |
-| Execution | `execution_event`、`execution_performance_span` | Event 按协议身份幂等；Span 以 `(trace_id, span_id)` 唯一；父子关系和事件自身时间不得用接收顺序替代 |
+| Execution | `execution_event`、`execution_performance_span` | 分别保存可重建的 `TurnEvent` 时间点证据与 `TimedOperation` Span 区间证据，不代表独立聚合根；Event 按协议身份幂等，Span 以 `(trace_id, span_id)` 唯一；Span 的 Turn 身份、模型调用身份及可选事件关联分别核验，不能用时间接近或父子 Span 身份推定工具归属；父子关系和事件自身时间不得用接收顺序替代 |
 | Execution | `execution_change` | Execution 聚合/实体变化同事务追加单调序列 |
 | Transcript | `transcript`、`transcript_item`、`transcript_command_execution`、UNKNOWN 相关表、`transcript_change` | 延续 Path/generation/byte offset 幂等、Meta Session ID 和内容侧 Turn/Call 候选；命令子执行以 Path、generation、来源 Item offset 和 execution ID 保持父子层级与结果事实 |
 | Trace | `trace_transcript_evidence_link`、`trace_tool_alignment` | 两侧身份、revision、等级和算法版本幂等；未验证公共工具 ID 时禁止 `EXACT`；一个模型 Tool Call 可关联多个命令子执行，不扁平化 |
