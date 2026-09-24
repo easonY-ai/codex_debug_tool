@@ -15,11 +15,11 @@
 
 | 项目 | 当前值 |
 | --- | --- |
-| 当前阶段 | 原型设计（V3 OTel + Transcript 产品与交互设计） |
+| 当前阶段 | 技术方案设计（V3 原型已获用户确认，迁移 Story 待拆分） |
 | 当前 Epic | E1 Execution 采集与 Trace 可视化 |
-| 当前 Story | S2.2 OTel-first 数据源方案升级 |
-| 当前测试 | F-01、F-02、F-04、F-05 已通过；最新安全契约覆盖 237 个批次（logs 156、traces 65、metrics 16）。F-03 已证明 0.154.0 无法交付 hosted tool 级身份、状态和耗时；审批等待起止与耗时未获版本证据，已移至 V1.1 |
-| 下一门禁 | 完成 V3 产品/原型规格与可运行 `prototype-v3`，经用户人工确认后，才拆分并启动 OTel-first 代码迁移 Story |
+| 当前 Story | S2.2 OTel-first 数据源方案升级已完成；下一项迁移 Story 尚未拆分或启动 |
+| 当前测试 | F-01、F-02、F-04、F-05 已通过；V3 单元测试 6 项、TypeScript/生产构建、桌面与窄屏 Playwright 检查通过。V3-02 原始证据展示问题已修复，用户于 2026-09-24 确认 V3-01 至 V3-07 原型；F-03 hosted tool 与审批等待能力已移至 V1.1 |
+| 下一门禁 | 按顺序拆分 OTel-first 迁移 Story；每个 Story 启动前完成对应规格、接口、测试用例及必要的技术方案评审，逐项开发和人工验收 |
 | 后续优先 Story | S2.2 完成后拆分 OTel-first 迁移 Story；不恢复验收现有 Hook-first S2.1-S2，也不直接启动旧 S2.1-S3、S3 或 S3.1 |
 
 ## Epic 与 Story
@@ -36,7 +36,7 @@
 
 ### E1 Execution 采集与 Trace 可视化
 
-- 状态：开发中，当前进行 S2.2 OTel + Transcript 方案规格同步；S2.1 暂停。
+- 状态：开发中，S2.2 方案及 V3 原型已确认；下一项迁移 Story 待拆分，S2.1 暂停。
 - 目标：以 OTel 建立执行与性能模型，用 Transcript 补充内容并在正式前端绘制 Trace；Hook 不进入目标架构，迁移完成前仅保留历史实现以支持回归和回滚。
 
 | Story | 范围 | 状态 | 当前证据/门禁 |
@@ -45,7 +45,7 @@
 | S1.1 本地运行日志 | CLI 与后端结构化按日日志、7 天保留、敏感字段脱敏；不含前端日志 | 开发完成 | CLI 6 项、后端 JDK 17/MySQL 全量 36 项及 `IT-LOG-001` 人工验收通过；用户于 2026-09-16 完成代码阅读并明确接受 Story |
 | S2 transcript 内容补齐 | 路径安全、session_meta 校验、用户/工具/最终内容挂接与三源证据检查 | 开发完成 | 后端 JDK 17/MySQL 全量 49 项、前端 19 项及生产构建通过；`IT-HOOK-TRACE-002` 步骤 1–12 和代码阅读通过；用户于 2026-09-16 明确接受 Story |
 | S2.1 问题域与聚合边界架构升级 | Execution、Transcript、Telemetry、Trace、Operations 边界和聚合升级 | 暂停（S2.1-S2 自动测试完成） | S2.1-S2 原实现及 61 项测试已通过但暂停人工验收；S2.2 将决定 Execution 的事实来源及当前 Hook-first 实现的复用、改造或废弃方式 |
-| S2.2 OTel-first 数据源方案升级 | V1.0 采用 OTel + Transcript，OTel 作为核心行为遥测与性能来源，Transcript 作为内容来源，移除目标架构中的 Hook | 开发中（V3 原型设计） | 来源方案、F-01/F-02/F-04/F-05、hosted tool 范围、本地命令结果、并行子执行和审批降级均已确认；规格一致性门禁完成。V3 人工确认前不启动代码迁移 |
+| S2.2 OTel-first 数据源方案升级 | V1.0 采用 OTel + Transcript，OTel 作为核心行为遥测与性能来源，Transcript 作为内容来源，移除目标架构中的 Hook | 开发完成 | 来源方案、规格一致性及 V3 原型人工门禁均已确认；自动构建、6 项单元测试及浏览器检查通过。代码迁移留给后续逐项拆分的 Story，具体细节在对应 Story 调整 |
 | S3 OTel 性能 Trace | OTLP traces 接收、工具关联、耗时摘要守恒、精度标识 | 待启动 | S2.2 规格与 V3 门禁完成，且新的 OTel-first 迁移 Story 通过验收后再决定启动；`EXACT` 仅适用于版本化样本已验证的本地工具模型 Call ID |
 | S4 实时 Trace | SSE 更新、运行中到完成、缺失内容标记 | 待启动 | S3 验收后开始 |
 | S5 健壮性与降级 | 幂等、乱序、半行、错配、UNKNOWN、缺源、同名并行歧义 | 待启动 | S4 验收后开始 |
